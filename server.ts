@@ -28,6 +28,78 @@ function getGenAI(): GoogleGenAI | null {
 }
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const FALLBACK_MODELS = [
+  GEMINI_MODEL,
+  "gemini-flash-latest",
+  "gemini-3.1-flash-lite",
+];
+
+function cleanJsonText(rawText: string): string {
+  let cleaned = (rawText || "").trim();
+  if (cleaned.startsWith("```json")) {
+    cleaned = cleaned.substring(7);
+  } else if (cleaned.startsWith("```")) {
+    cleaned = cleaned.substring(3);
+  }
+  if (cleaned.endsWith("```")) {
+    cleaned = cleaned.substring(0, cleaned.length - 3);
+  }
+  return cleaned.trim();
+}
+
+interface GenerateOptions {
+  contents: any;
+  config?: any;
+  endpointName?: string;
+}
+
+async function generateContentWithFallback(
+  ai: GoogleGenAI,
+  options: GenerateOptions
+): Promise<any> {
+  const models = Array.from(new Set(FALLBACK_MODELS));
+  let lastError: any = null;
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: options.contents,
+        config: options.config,
+      });
+      return response;
+    } catch (err: any) {
+      lastError = err;
+      const status = err?.status || err?.code;
+      const msg = err?.message || String(err);
+      const isTemporary =
+        status === 503 ||
+        status === 429 ||
+        status === 500 ||
+        msg.includes("503") ||
+        msg.includes("429") ||
+        msg.includes("high demand") ||
+        msg.includes("UNAVAILABLE") ||
+        msg.includes("RESOURCE_EXHAUSTED");
+
+      if (isTemporary && i < models.length - 1) {
+        console.warn(
+          `[AI ${options.endpointName || "Task"}] Model ${model} is temporarily busy (${status || "503"}). Retrying with fallback model ${models[i + 1]}...`
+        );
+        // Exponential backoff with small jitter (800ms - 1500ms)
+        await new Promise((resolve) => setTimeout(resolve, 800 + i * 400 + Math.random() * 300));
+        continue;
+      }
+
+      if (!isTemporary && i < models.length - 1) {
+        continue;
+      }
+    }
+  }
+
+  throw lastError;
+}
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -78,20 +150,20 @@ Format your response as strict JSON:
       },
     ];
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents,
       config: {
         responseMimeType: "application/json",
         temperature: 0.7,
       },
+      endpointName: "Roleplay",
     });
 
-    const text = response.text || "{}";
+    const text = cleanJsonText(response.text || "{}");
     const parsed = JSON.parse(text);
     return res.json(parsed);
-  } catch (error) {
-    console.error("Roleplay API error:", error);
+  } catch (error: any) {
+    console.warn("Roleplay API using fallback due to:", error?.message || error);
     // Graceful fallback so user never gets a broken experience
     return res.json({
       reply: "That sounds wonderful! Could you tell me more about that?",
@@ -131,19 +203,19 @@ Respond in strict JSON:
   "encouragement": "Warm, inspiring message in Vietnamese"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: systemPrompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.5,
       },
+      endpointName: "Writing Evaluation",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     return res.json(parsed);
-  } catch (error) {
-    console.error("Evaluation error:", error);
+  } catch (error: any) {
+    console.warn("Evaluation API using fallback due to:", error?.message || error);
     return res.json({
       score: 8.0,
       strengths: ["Ý tưởng mạch lạc, đúng chủ đề"],
@@ -179,8 +251,35 @@ The student has already mastered these words: [${excludeWords.slice(0, 60).join(
 DO NOT reuse or repeat any of these exact words in the "vocabAndCollocations" or practice exercises. You MUST introduce COMPLETELY FRESH, HIGH-YIELD vocabulary suitable for Grade ${gradeNum} (${targetLevel}) to constantly expand their lexicon.`
       : '';
 
+    // Grade-adaptive pedagogical prompts strictly aligned with GDPT 2018
+    let gradePedagogicalDirective = "";
+    if (gradeNum === 3) {
+      gradePedagogicalDirective = `TARGET: Grade 3 Primary (Pre-A1 Cambridge Starters, Age 8-9).
+Use extremely warm, lively tone with fun emojis. Topics: school items, greetings, colors, family, pets, numbers 1-20. Short 4-7 word sentences. No complex grammar jargon. Focus on simple 'What is this? It is a...', 'How are you?'.`;
+    } else if (gradeNum === 4) {
+      gradePedagogicalDirective = `TARGET: Grade 4 Primary (A1 Cambridge Movers, Age 9-10).
+Use encouraging, friendly tone. Topics: daily routines, time (What time is it?), subjects, nationalities, abilities (can/can't), present continuous (What are you doing? I am...). Relatable primary school contexts.`;
+    } else if (gradeNum === 5) {
+      gradePedagogicalDirective = `TARGET: Grade 5 Primary (A1+ Cambridge Flyers & Transition to Grade 6, Age 10-11).
+Topics: holidays, past simple (went, visited, saw, ate), directions (How can I get to...), comparative adjectives (taller, bigger), future intentions (will / be going to). Prepare smoothly for Grade 6 entrance exams.`;
+    } else if (gradeNum === 6) {
+      gradePedagogicalDirective = `TARGET: Grade 6 Lower Secondary (A2 Cambridge KET, Age 11-12, Khởi đầu THCS).
+Tone: Motivating, clear, supportive for new secondary students. Topics: My New School, neighbourhood, houses, present simple vs. present continuous, comparative adjectives, prepositions of place, modal verbs (must/should). DO NOT use Grade 9/10 high school entrance exam traps or advanced B2 syntax.`;
+    } else if (gradeNum === 7) {
+      gradePedagogicalDirective = `TARGET: Grade 7 Lower Secondary (A2+/B1, Age 12-13, THCS).
+Topics: Community service, health & lifestyle, music & arts, traffic, sources of energy. Grammar: Conjunctions (although, however, because), past habits (used to + V), -ed/-ing adjectives, future continuous. Focus on communication and school exams.`;
+    } else if (gradeNum === 8) {
+      gradePedagogicalDirective = `TARGET: Grade 8 Lower Secondary (B1 Cambridge PET, Age 13-14, THCS).
+Topics: Leisure time & hobbies, life in countryside, environmental protection, disaster prevention. Grammar: Verbs of liking + V-ing/to-V, passive voice, past continuous with when/while, first conditionals with IF/UNLESS, comparative of adverbs.`;
+    } else {
+      gradePedagogicalDirective = `TARGET: Grade 9 Lower Secondary (B1+/B2, Age 14-15, Ôn thi vào Lớp 10 & Chuyên Anh).
+Topics: City life, local environment, space, world Englishes, teen stress. Grammar: Phrasal verbs, double comparatives (The more... the more...), wh-word + to-inf, wishes, relative clauses, second conditionals, impersonal passive, cleft sentences and entrance exam traps (Thi vào 10).`;
+    }
+
     const primarySystemPrompt = `You are "Cô Mai Anh AI / Thầy Alex AI" - a dedicated, certified Primary English Master Teacher (Chuyên gia Sư phạm Tiếng Anh Tiểu học GDPT 2018 - Lớp 3, 4, 5).
 Create an engaging, beautifully structured, age-appropriate English lesson specifically for a Primary student named ${studentName} (Grade ${gradeNum}, Age ${gradeNum + 5}, Target Level: ${targetLevel}).
+
+${gradePedagogicalDirective}
 
 Topic requested: "${topic || "Chủ đề tiếng Anh Tiểu học Lớp " + gradeNum}"
 ${wordsToExcludeStr}
@@ -237,8 +336,10 @@ Respond in STRICT JSON format matching this schema:
   "createdAt": "${new Date().toISOString()}"
 }`;
 
-    const secondarySystemPrompt = `You are a distinguished English Master Teacher specializing in the Vietnamese GDPT 2018 secondary curriculum and competitive entrance exams for Specialized High Schools (Thi Chuyên Anh vào lớp 10, CEFR B1/B2 level).
+    const secondarySystemPrompt = `You are a distinguished English Master Teacher specializing in the Vietnamese GDPT 2018 secondary curriculum (THCS Lớp 6-9) and entrance exam preparation.
 Create an interactive, comprehensive English lesson tailored for ${studentName} (Grade ${gradeNum}, Target: ${targetLevel}).
+
+${gradePedagogicalDirective}
 
 Topic requested: "${topic}"
 ${wordsToExcludeStr}
@@ -247,7 +348,7 @@ Provide a structured, pedagogically sound lesson with:
 1. Clear, engaging title and learning objective in Vietnamese.
 2. Concept explanation in Vietnamese breaking down the core rules, nuances, and why students often make mistakes.
 3. 4-6 high-yield vocabulary items / collocations / idioms with IPA, part of speech, Vietnamese meaning, natural example sentence in English & Vietnamese, and an exam tip (examNote).
-4. 2-3 grammar structures / formulas with example sentences, and crucial "Exam Traps" (Bẫy đề thi Chuyên/Đề thi vào 10).
+4. 2-3 grammar structures / formulas with example sentences, and crucial "Lưu ý bài thi" (Phù hợp chính xác với khối Lớp ${gradeNum}).
 5. 4 interactive practice exercises (combination of multiple-choice, word-formation, or sentence-transformation) with correct answers and detailed Vietnamese explanations.
 6. A motivating tutor tip for ${studentName}.
 
@@ -296,23 +397,23 @@ Respond in STRICT JSON format matching this schema:
 
     const systemPrompt = isPrimary ? primarySystemPrompt : secondarySystemPrompt;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: systemPrompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.6,
       },
+      endpointName: "Tutor Lesson",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     if (!parsed.id) {
       parsed.id = `lesson-${Date.now()}`;
     }
     parsed.grade = gradeNum;
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Tutor lesson generation error:", error);
+  } catch (error: any) {
+    console.warn("AI Tutor lesson generation using fallback due to:", error?.message || error);
     return res.json(getFallbackGeneratedLesson(req.body.topic, req.body.grade, req.body.targetLevel, req.body.excludeWords));
   }
 });
@@ -341,19 +442,19 @@ Format your response in strict JSON:
   "mnemonicTip": "A memorable tip or trick for exam recall (1 sentence in Vietnamese)"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: prompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.7,
       },
+      endpointName: "Tutor Ask",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Tutor ask error:", error);
+  } catch (error: any) {
+    console.warn("AI Tutor ask using fallback due to:", error?.message || error);
     return res.json({
       answer: "Thầy/Cô đã nhận được câu hỏi. Khi làm dạng bài này, em hãy luôn xác định trước: Chủ ngữ chính là gì, thì của câu là gì, và có từ mang nghĩa phủ định đứng đầu câu hay không nhé.",
       mnemonicTip: "Hãy luôn gạch chân từ khóa và dấu hiệu thời gian trước khi chọn đáp án!",
@@ -459,16 +560,16 @@ Return your response in STRICT JSON matching this schema:
   "createdAt": "${new Date().toISOString()}"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: systemPrompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.6,
       },
+      endpointName: "Reading Generation",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     if (!parsed.id) {
       parsed.id = `reading-${Date.now()}`;
     }
@@ -477,8 +578,8 @@ Return your response in STRICT JSON matching this schema:
       parsed.wordCount = parsed.contentEn.trim().split(/\s+/).length;
     }
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Reading generation error:", error);
+  } catch (error: any) {
+    console.warn("AI Reading generation using curriculum fallback due to:", error?.message || error);
     const isShort = req.body.lengthOption === "short" || req.body.wordCountTarget === "50-60";
     return res.json(getFallbackReadingPassage(req.body.topic, req.body.grade, req.body.targetLevel, isShort ? "short" : "standard"));
   }
@@ -670,8 +771,7 @@ Respond in STRICT JSON matching this schema:
   "examNote": "Mẹo làm bài thi quan trọng cho học sinh theo chuẩn GDPT 2018"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: [
         {
           role: "user",
@@ -682,9 +782,10 @@ Respond in STRICT JSON matching this schema:
         responseMimeType: "application/json",
         temperature: 0.6,
       },
+      endpointName: "Daily Mission",
     });
 
-    const text = response.text || "{}";
+    const text = cleanJsonText(response.text || "{}");
     const parsed = JSON.parse(text);
     if (!parsed.id) {
       parsed.id = `mission-ai-${Date.now()}`;
@@ -694,8 +795,8 @@ Respond in STRICT JSON matching this schema:
     parsed.skill = skill;
     parsed.estimatedMinutes = 30;
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Daily Mission generation error:", error);
+  } catch (error: any) {
+    console.warn("AI Daily Mission generation using fallback due to:", error?.message || error);
     return res.json(getFallbackDailyMission(Number(req.body.grade || 6), req.body.skill || "vocabulary", req.body.topic, req.body.date, req.body.excludeWords));
   }
 });
@@ -1591,44 +1692,353 @@ function getFallbackGeneratedLesson(
     };
   }
 
-  // 4. Secondary Fallback (Grade 6 - 9)
+  // 4. Grade 6 Fallback (A2 THCS Đầu cấp)
+  if (gradeNum === 6) {
+    return {
+      id: `lesson-${Date.now()}`,
+      topic: topic || "My New School & Present Tenses",
+      grade: 6,
+      cefrLevel: "A2 (THCS Lớp 6 - Khởi đầu cấp 2)",
+      title: `🎒 Chuyên Đề: ${topic || "Trường Học Mới & Hiện Tại Đơn vs Tiếp Diễn"} (My New School & Present Tenses)`,
+      objectiveVi: "Làm quen với môi trường học tập THCS, phân biệt rạch ròi giữa thì Hiện tại đơn (thói quen, lịch trình) và Hiện tại tiếp diễn (đang diễn ra).",
+      conceptExplanation: "Chào học sinh Lớp 6! Bước vào cấp 2, ngữ pháp tiếng Anh bắt đầu có hệ thống rõ ràng hơn. Thì Hiện tại đơn (S + V(s/es)) dùng cho thói quen hàng ngày hoặc thời khóa biểu cố định. Thì Hiện tại tiếp diễn (S + am/is/are + V-ing) dùng khi hành động đang xảy ra ngay lúc nói (dấu hiệu: now, at the moment, Look!, Listen!).",
+      vocabAndCollocations: [
+        {
+          word: "uniform",
+          ipa: "/ˈjuː.nɪ.fɔːm/",
+          partOfSpeech: "noun",
+          meaningVi: "đồng phục học sinh",
+          exampleEn: "We always wear school uniform on Mondays.",
+          exampleVi: "Chúng mình luôn mặc đồng phục trường vào các ngày thứ Hai.",
+          examNote: "Cụm từ thông dụng: wear uniform (mặc đồng phục)."
+        },
+        {
+          word: "equipment",
+          ipa: "/ɪˈkwɪp.mənt/",
+          partOfSpeech: "noun (uncountable)",
+          meaningVi: "trang thiết bị, đồ dùng thực hành",
+          exampleEn: "Our science lab has modern computer equipment.",
+          exampleVi: "Phòng thí nghiệm khoa học của trường có các thiết bị máy tính hiện đại.",
+          examNote: "Bẫy đề thi: 'equipment' là danh từ không đếm được, KHÔNG thêm 's' ở đuôi!"
+        },
+        {
+          word: "boarding school",
+          ipa: "/ˈbɔː.dɪŋ skuːl/",
+          partOfSpeech: "noun",
+          meaningVi: "trường nội trú",
+          exampleEn: "Students at a boarding school study and live away from home.",
+          exampleVi: "Học sinh tại trường nội trú học tập và sinh hoạt xa nhà.",
+          examNote: "Phân biệt với 'day school' (trường bán trú / học ban ngày)."
+        },
+        {
+          word: "neighbourhood",
+          ipa: "/ˈneɪ.bə.hʊd/",
+          partOfSpeech: "noun",
+          meaningVi: "khu dân cư, khu phố lân cận",
+          exampleEn: "My new neighbourhood is quiet and friendly.",
+          exampleVi: "Khu phố mới của tớ rất yên tĩnh và thân thiện.",
+          examNote: "Người hàng xóm là 'neighbour', còn khu vực xung quanh là 'neighbourhood'."
+        }
+      ],
+      grammarStructures: [
+        {
+          name: "Phân biệt Hiện tại đơn & Hiện tại tiếp diễn",
+          formula: "HTĐ: S + V(s/es) (thói quen, always, usually) vs. HTTD: S + am/is/are + V-ing (now, Look!)",
+          exampleEn: "Nam usually walks to school, but today he is riding a bicycle.",
+          exampleVi: "Nam thường đi bộ đến trường, nhưng hôm nay cậu ấy đang đi xe đạp.",
+          examTrapVi: "Động từ chỉ trạng thái/cảm xúc (like, love, know, understand, need) KHÔNG chia tiếp diễn!"
+        },
+        {
+          name: "So sánh hơn của tính từ ngắn và tính từ dài",
+          formula: "Ngắn: S1 + is/are + adj-er + than + S2 | Dài: S1 + is/are + MORE + adj + than + S2",
+          exampleEn: "My new school is larger and more modern than my old one.",
+          exampleVi: "Trường mới của tớ rộng hơn và hiện đại hơn trường cũ.",
+          examTrapVi: "Nhớ các trường hợp đặc biệt: good -> better, bad -> worse, far -> farther/further."
+        }
+      ],
+      interactiveExercises: [
+        {
+          id: "ex-1",
+          type: "multiple-choice",
+          question: "Listen! Someone _______ at the classroom door.",
+          options: ["is knocking", "knocks", "knocked", "are knocking"],
+          correctAnswer: "is knocking",
+          explanationVi: "Có hiệu lệnh gây chú ý 'Listen!' cho thấy hành động đang diễn ra -> thì Hiện tại tiếp diễn với chủ ngữ Someone số ít: is knocking."
+        },
+        {
+          id: "ex-2",
+          type: "multiple-choice",
+          question: "Lan _______ to English club every Friday afternoon.",
+          options: ["goes", "is going", "go", "went"],
+          correctAnswer: "goes",
+          explanationVi: "Thói quen lặp lại 'every Friday afternoon' với chủ ngữ Lan (ngôi 3 số ít) chia thì Hiện tại đơn: goes."
+        },
+        {
+          id: "ex-3",
+          type: "multiple-choice",
+          question: "This science museum is _______ than the historical gallery.",
+          options: ["more interesting", "interesting", "interestinger", "most interesting"],
+          correctAnswer: "more interesting",
+          explanationVi: "'Interesting' là tính từ dài có 3 âm tiết nên so sánh hơn dùng 'more interesting than'."
+        },
+        {
+          id: "ex-4",
+          type: "multiple-choice",
+          question: "The school library has a lot of modern _______.",
+          options: ["equipment", "equipments", "an equipment", "equip"],
+          correctAnswer: "equipment",
+          explanationVi: "'Equipment' là danh từ không đếm được, không thêm đuôi 's' hay mạo từ 'an'."
+        }
+      ],
+      tutorTip: "Gia sư Lớp 6 khuyên bạn: Khi làm bài tập chia thì, hãy luôn tìm 'từ khóa chỉ thời gian' (dấu hiệu nhận biết) trước khi quyết định chọn đáp án nhé!",
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  // 5. Grade 7 Fallback (A2+/B1 THCS Giữa cấp)
+  if (gradeNum === 7) {
+    return {
+      id: `lesson-${Date.now()}`,
+      topic: topic || "Community Service & Conjunctions",
+      grade: 7,
+      cefrLevel: "A2+/B1 (THCS Lớp 7)",
+      title: `🌿 Chuyên Đề: ${topic || "Hoạt Động Cộng Đồng & Liên Từ Although / However"} (Community Service & Linking Words)`,
+      objectiveVi: "Nắm vững vốn từ vựng về tình nguyện, lối sống lành mạnh và sử dụng chính xác các liên từ chỉ sự tương phản (Although, However, In spite of).",
+      conceptExplanation: "Trong chương trình Lớp 7 GDPT 2018, học sinh cần diễn đạt các ý kiến đa chiều bằng cách dùng liên từ tương phản. 'Although + S + V' (mặc dù) đứng trong mệnh đề phụ, trong khi 'However, + S + V' (tuy nhiên) thường đứng sau dấu chấm hoặc dấu chấm phẩy để nối hai câu độc lập.",
+      vocabAndCollocations: [
+        {
+          word: "volunteer",
+          ipa: "/ˌvɒl.ənˈtɪər/",
+          partOfSpeech: "noun & verb",
+          meaningVi: "tình nguyện viên; làm việc tình nguyện",
+          exampleEn: "Many students volunteer to clean up local parks on Sundays.",
+          exampleVi: "Nhiều học sinh tình nguyện dọn dẹp các công viên địa phương vào Chủ nhật.",
+          examNote: "Cụm danh từ: volunteer work (công việc tình nguyện)."
+        },
+        {
+          word: "donate",
+          ipa: "/dəʊˈneɪt/",
+          partOfSpeech: "verb",
+          meaningVi: "quyên góp, ủng hộ (tiền, quần áo, sách vở)",
+          exampleEn: "We donated warm clothes and notebooks to rural children.",
+          exampleVi: "Chúng mình đã quyên góp quần áo ấm và vở viết cho trẻ em vùng sâu vùng xa.",
+          examNote: "Danh từ tương ứng: donation /dəʊˈneɪʃn/."
+        },
+        {
+          word: "benefit",
+          ipa: "/ˈben.ɪ.fɪt/",
+          partOfSpeech: "noun",
+          meaningVi: "lợi ích, điều hữu ích",
+          exampleEn: "Community service brings valuable benefits to society.",
+          exampleVi: "Hoạt động phục vụ cộng đồng đem lại nhiều lợi ích quý giá cho xã hội.",
+          examNote: "Tính từ: beneficial /ˌben.ɪˈfɪʃ.əl/ (có lợi)."
+        },
+        {
+          word: "community",
+          ipa: "/kəˈmjuː.nə.ti/",
+          partOfSpeech: "noun",
+          meaningVi: "cộng đồng dân cư",
+          exampleEn: "We should help poor people in our local community.",
+          exampleVi: "Chúng ta nên giúp đỡ người nghèo trong cộng đồng địa phương.",
+          examNote: "Trọng âm âm tiết 2: com-MU-ni-ty."
+        }
+      ],
+      grammarStructures: [
+        {
+          name: "Liên từ tương phản Although / However",
+          formula: "Although + S1 + V1, S2 + V2 | S1 + V1. However, S2 + V2",
+          exampleEn: "Although the weather was stormy, the volunteers kept helping people.",
+          exampleVi: "Mặc dù thời tiết mưa bão, các tình nguyện viên vẫn tiếp tục giúp đỡ mọi người.",
+          examTrapVi: "KHÔNG dùng 'Although' và 'But' trong cùng một câu!"
+        },
+        {
+          name: "Thói quen trong quá khứ với Used to",
+          formula: "Khẳng định: S + used to + V-inf | Phủ định: S + didn't use to + V-inf",
+          exampleEn: "My father used to cycle to work when he was young.",
+          exampleVi: "Bố tớ từng đạp xe đi làm khi ông còn trẻ.",
+          examTrapVi: "Sau 'didn't', động từ 'use to' bỏ chữ 'd' ở đuôi!"
+        }
+      ],
+      interactiveExercises: [
+        {
+          id: "ex-1",
+          type: "multiple-choice",
+          question: "_______ it was raining heavily, the students went out to plant trees.",
+          options: ["Although", "Because", "However", "Despite of"],
+          correctAnswer: "Although",
+          explanationVi: "Nối 2 mệnh đề tương phản chỉ sự nhượng bộ với mệnh đề S + V (it was raining) ta dùng 'Although'."
+        },
+        {
+          id: "ex-2",
+          type: "multiple-choice",
+          question: "My brother didn't _______ like classical music, but now he loves it.",
+          options: ["use to", "used to", "uses to", "using to"],
+          correctAnswer: "use to",
+          explanationVi: "Trong câu phủ định có trợ động từ 'didn't', ta dùng 'use to' (không có đuôi -d)."
+        },
+        {
+          id: "ex-3",
+          type: "multiple-choice",
+          question: "They have _______ hundreds of warm coats to needy children.",
+          options: ["donated", "donate", "donating", "donation"],
+          correctAnswer: "donated",
+          explanationVi: "Sau thì Hiện tại hoàn thành 'have' cần một quá khứ phân từ V3/ed: donated."
+        },
+        {
+          id: "ex-4",
+          type: "multiple-choice",
+          question: "Eating plenty of fresh vegetables is _______ for your health.",
+          options: ["beneficial", "benefit", "beneficially", "benefits"],
+          correctAnswer: "beneficial",
+          explanationVi: "Đứng sau động từ to be 'is' cần một tính từ bổ nghĩa: beneficial (có lợi)."
+        }
+      ],
+      tutorTip: "Gia sư Lớp 7 chia sẻ: Khi gặp câu viết lại tương đương giữa 'Although' và 'In spite of', nhớ công thức: In spite of + Noun phrase / V-ing!",
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  // 6. Grade 8 Fallback (B1 THCS)
+  if (gradeNum === 8) {
+    return {
+      id: `lesson-${Date.now()}`,
+      topic: topic || "Leisure Activities & Passive Voice",
+      grade: 8,
+      cefrLevel: "B1 (THCS Lớp 8 - Bứt phá học lực)",
+      title: `🎯 Chuyên Đề: ${topic || "Thời Gian Rảnh Rỗi & Câu Bị Động"} (Leisure Time & Passive Voice)`,
+      objectiveVi: "Sử dụng thành thạo các động từ chỉ sự ưa thích đi kèm danh động từ (V-ing) và chuyển đổi câu chủ động sang câu bị động chuẩn xác.",
+      conceptExplanation: "Trong chương trình Lớp 8, các em được rèn luyện cấu trúc câu phức tạp hơn. Khi nói về sở thích: fancy, adore, enjoy, detest + V-ing. Về câu bị động: Dùng khi muốn nhấn mạnh đối tượng tiếp nhận hành động hơn là người thực hiện. Công thức nền tảng: S + be (chia theo thì) + V3/ed + (by O).",
+      vocabAndCollocations: [
+        {
+          word: "leisure activity",
+          ipa: "/ˈleʒ.ər ækˈtɪv.ə.ti/",
+          partOfSpeech: "noun phrase",
+          meaningVi: "hoạt động giải trí, thư giãn trong thời gian rảnh",
+          exampleEn: "Doing DIY crafts is my favorite leisure activity.",
+          exampleVi: "Làm đồ thủ công tự chế là hoạt động giải trí yêu thích nhất của tớ.",
+          examNote: "Đồng nghĩa với: recreational activity."
+        },
+        {
+          word: "fond of",
+          ipa: "/fɒnd əv/",
+          partOfSpeech: "adjective + preposition",
+          meaningVi: "say mê, rất thích cái gì",
+          exampleEn: "She is fond of learning foreign languages and photography.",
+          exampleVi: "Cô ấy rất say mê học ngoại ngữ và nhiếp ảnh.",
+          examNote: "Tương đương: keen on, interested in + V-ing/Noun."
+        },
+        {
+          word: "preserve",
+          ipa: "/prɪˈzɜːv/",
+          partOfSpeech: "verb",
+          meaningVi: "bảo tồn, gìn giữ (truyền thống, môi trường)",
+          exampleEn: "We need effective policies to preserve our cultural heritage.",
+          exampleVi: "Chúng ta cần những chính sách hiệu quả để bảo tồn di sản văn hóa.",
+          examNote: "Danh từ: preservation /ˌprez.əˈveɪ.ʃən/."
+        },
+        {
+          word: "originate",
+          ipa: "/əˈrɪdʒ.ɪ.neɪt/",
+          partOfSpeech: "verb",
+          meaningVi: "bắt nguồn, có nguồn gốc từ",
+          exampleEn: "This folk festival originated hundreds of years ago.",
+          exampleVi: "Lễ hội dân gian này bắt nguồn từ hàng trăm năm trước.",
+          examNote: "Đi với giới từ: originate in / originate from."
+        }
+      ],
+      grammarStructures: [
+        {
+          name: "Động từ chỉ sở thích + V-ing / to-V",
+          formula: "fancy / adore / enjoy / mind / detest + V-ING | prefer / love / like + V-ING or TO-V",
+          exampleEn: "Do you fancy hanging out with us at the weekend?",
+          exampleVi: "Cậu có hứng thú đi dạo chơi cùng chúng mình cuối tuần này không?",
+          examTrapVi: "Động từ 'fancy' LUÔN đi với V-ing, không đi với to-V!"
+        },
+        {
+          name: "Câu bị động (Passive Voice) cơ bản",
+          formula: "Chủ động: S + V + O -> Bị động: O + BE + V3/ed + (by S)",
+          exampleEn: "Ancient pagodas are carefully preserved by the local residents.",
+          exampleVi: "Các ngôi chùa cổ được người dân địa phương gìn giữ cẩn thận.",
+          examTrapVi: "Nếu chủ ngữ là people, someone, they thì có thể bỏ 'by someone/people' ở câu bị động."
+        }
+      ],
+      interactiveExercises: [
+        {
+          id: "ex-1",
+          type: "multiple-choice",
+          question: "My grandfather detests _______ in crowded shopping malls.",
+          options: ["shopping", "to shop", "shop", "shopped"],
+          correctAnswer: "shopping",
+          explanationVi: "Sau động từ ghét/không thích 'detest' luôn đi kèm với danh động từ V-ing: shopping."
+        },
+        {
+          id: "ex-2",
+          type: "multiple-choice",
+          question: "Millions of greeting cards _______ every Christmas.",
+          options: ["are sent", "send", "is sent", "were sent"],
+          correctAnswer: "are sent",
+          explanationVi: "Chủ ngữ 'Millions of greeting cards' là số nhiều tiếp nhận hành động, thì hiện tại đơn: are + V3 (sent)."
+        },
+        {
+          id: "ex-3",
+          type: "multiple-choice",
+          question: "Unless you practice listening regularly, you _______ pass the test.",
+          options: ["won't", "will", "don't", "wouldn't"],
+          correctAnswer: "won't",
+          explanationVi: "Câu điều kiện loại 1 với 'Unless' (= If not): Mệnh đề chính mang nghĩa phủ định trong tương lai: won't."
+        },
+        {
+          id: "ex-4",
+          type: "multiple-choice",
+          question: "Mai is very keen _______ joining the school drama club.",
+          options: ["on", "in", "at", "with"],
+          correctAnswer: "on",
+          explanationVi: "Cụm tính từ đi liền giới từ: keen on (say mê, thích thú)."
+        }
+      ],
+      tutorTip: "Gia sư Lớp 8 nhắn nhủ: Hãy luôn học từ vựng theo cụm (Collocations) như 'keen on', 'fond of', 'mind + V-ing'. Đây là các câu hỏi lấy điểm 9-10 trong các bài kiểm tra 1 tiết và học kỳ!",
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  // 7. Grade 9 Fallback (B1+/B2 THCS Cuối cấp & Ôn thi vào Lớp 10 / Chuyên Anh)
   const allVocabSets = [
     {
-      word: "Inversion",
-      ipa: "/ɪnˈvɜːʃn/",
-      partOfSpeech: "noun",
-      meaningVi: "Sự đảo ngữ, cấu trúc đảo trật tự từ",
-      exampleEn: "Negative inversion occurs when a negative adverb starts the sentence.",
-      exampleVi: "Đảo ngữ phủ định xảy ra khi một phó từ phủ định đứng đầu câu.",
-      examNote: "Thường xuất hiện trong phần Viết lại câu giữ nguyên nghĩa.",
-    },
-    {
-      word: "Under no circumstances",
-      ipa: "/ˈʌndər nəʊ ˈsɜːkəmstənsɪz/",
-      partOfSpeech: "adverbial phrase",
-      meaningVi: "Dù trong bất kỳ hoàn cảnh nào cũng không",
-      exampleEn: "Under no circumstances should you press this red button.",
-      exampleVi: "Dù trong bất kỳ trường hợp nào bạn cũng không được ấn nút đỏ này.",
-      examNote: "Luôn luôn đảo ngữ ngay sau cụm từ này!",
-    },
-    {
-      word: "Take into account",
-      ipa: "/teɪk ˈɪntu əˈkaʊnt/",
-      partOfSpeech: "collocation / idiom",
-      meaningVi: "Cân nhắc, tính đến yếu tố nào đó",
-      exampleEn: "The judges will take your prior achievements into account.",
-      exampleVi: "Ban giám khảo sẽ tính đến những thành tích trước đó của bạn.",
-      examNote: "Tương đương với 'take into consideration'.",
-    },
-    {
-      word: "Invaluable",
-      ipa: "/ɪnˈvæljuəbl/",
+      word: "metropolitan",
+      ipa: "/ˌmet.rəˈpɒl.ɪ.tən/",
       partOfSpeech: "adjective",
-      meaningVi: "Vô giá, cực kỳ quý báu",
-      exampleEn: "Her mentorship was invaluable during my exam preparation.",
-      exampleVi: "Sự hướng dẫn của cô ấy là vô giá trong suốt kỳ ôn thi của tôi.",
-      examNote: "Bẫy đề thi: 'Valueless' mới là vô giá trị, còn 'Invaluable' = priceless (vô giá).",
+      meaningVi: "thuộc về thủ đô, thành phố lớn hiện đại",
+      exampleEn: "Tokyo is one of the most populated metropolitan areas in the world.",
+      exampleVi: "Tokyo là một trong những khu vực đô thị đông dân nhất thế giới.",
+      examNote: "Danh từ gốc: metropolis /məˈtrɒp.əl.ɪs/ (đô thị lớn)."
     },
+    {
+      word: "carry out",
+      ipa: "/ˈkær.i aʊt/",
+      partOfSpeech: "phrasal verb",
+      meaningVi: "tiến hành, thực hiện (nghiên cứu, khảo sát, nhiệm vụ)",
+      exampleEn: "Scientists are carrying out an extensive survey on air quality.",
+      exampleVi: "Các nhà khoa học đang tiến hành một cuộc khảo sát quy mô lớn về chất lượng không khí.",
+      examNote: "Đồng nghĩa với: conduct, implement."
+    },
+    {
+      word: "confront",
+      ipa: "/kənˈfrʌnt/",
+      partOfSpeech: "verb",
+      meaningVi: "đối mặt, đương đầu với khó khăn",
+      exampleEn: "Big cities must confront severe traffic congestion and pollution.",
+      exampleVi: "Các thành phố lớn phải đối mặt với tình trạng ùn tắc giao thông và ô nhiễm nghiêm trọng.",
+      examNote: "Cụm danh từ: face-to-face confrontation."
+    },
+    {
+      word: "invaluable",
+      ipa: "/ɪnˈvæl.ju.ə.bəl/",
+      partOfSpeech: "adjective",
+      meaningVi: "vô giá, cực kỳ quý báu",
+      exampleEn: "Her advice was invaluable for our exam preparation strategy.",
+      exampleVi: "Lời khuyên của cô ấy là vô giá đối với chiến lược ôn thi của chúng tôi.",
+      examNote: "Bẫy đề thi tuyển sinh: 'Valueless' mới là vô giá trị, còn 'Invaluable' = priceless (vô giá)."
+    }
   ];
 
   const filteredVocab = allVocabSets.filter(item => !excludedSet.has(item.word.toLowerCase().trim()));
@@ -1636,46 +2046,65 @@ function getFallbackGeneratedLesson(
 
   return {
     id: `lesson-${Date.now()}`,
-    topic: topic || "Cấu trúc ngữ pháp trọng tâm THCS & Luyện thi Chuyên Anh",
-    grade: gradeNum,
-    cefrLevel: targetLevel,
-    title: `Chuyên đề: ${topic || "Đảo ngữ nâng cao & Cấu trúc trọng tâm"} - Lớp ${gradeNum}`,
-    objectiveVi: `Nắm vững bản chất ngữ pháp của ${topic || "chuyên đề trọng tâm"}, tránh các bẫy phổ biến trong đề thi và đạt điểm 9-10.`,
-    conceptExplanation: `Trong chương trình THCS và đề thi Chuyên Anh vào lớp 10, cấu trúc này được dùng để nhấn mạnh ý nghĩa hoặc tạo sắc thái trang trọng. Quy tắc chung: Đưa từ/cụm từ phủ định hoặc hạn định ra đầu câu -> Đảo trợ động từ lên trước chủ ngữ.`,
+    topic: topic || "City Life & Trọng Tâm Ôn Thi Tuyển Sinh Vào 10",
+    grade: 9,
+    cefrLevel: targetLevel || "B1+/B2 (Lớp 9 & Thi vào 10)",
+    title: `🚀 Chuyên Đề: ${topic || "Đời Sống Đô Thị & Cấu Trúc Trọng Điểm Thi Vào 10"} - Lớp 9`,
+    objectiveVi: `Thành thạo cấu trúc So sánh kép (Double Comparative), cụm động từ (Phrasal Verbs) và mệnh đề quan hệ để tối đa hóa điểm thi vào lớp 10 THPT công lập & Chuyên Anh.`,
+    conceptExplanation: `Trong kỳ thi tuyển sinh vào lớp 10, cấu trúc so sánh kép 'The + comparative..., the + comparative...' (Càng... càng...) và cụm động từ (Phrasal Verbs) là hai nội dung phân loại học sinh quyết định nhất. Cần nắm chắc cách biến đổi tính từ/trạng từ ngắn và dài để không bị mất điểm đáng tiếc.`,
     vocabAndCollocations: selectedVocab,
     grammarStructures: [
       {
-        name: "Đảo ngữ với No sooner... than / Hardly... when",
-        formula: "No sooner had + S + V3/ed + THAN + S + V2/ed | Hardly had + S + V3/ed + WHEN + S + V2/ed",
-        exampleEn: "No sooner had the bell rung than the students rushed out.",
-        exampleVi: "Ngay khi chuông vừa reo thì học sinh liền ùa ra ngoài.",
-        examTrapVi: "Bẫy cực phổ biến: Nhớ quy tắc 'No sooner THAN - Hardly WHEN'.",
+        name: "Cấu trúc so sánh kép (The more... the more...)",
+        formula: "The + comparative 1 + S1 + V1, the + comparative 2 + S2 + V2",
+        exampleEn: "The more modern the city becomes, the more congested the streets are.",
+        exampleVi: "Thành phố càng hiện đại thì đường phố càng đông đúc tắc nghẽn.",
+        examTrapVi: "Bắt buộc phải có mạo từ 'The' ở cả hai vế! Nếu vế có tính từ ngắn: The + adj-er."
       },
+      {
+        name: "Mệnh đề quan hệ xác định & không xác định",
+        formula: "Who (người, làm S/O) | Which (vật) | Whose (sở hữu) | Where (nơi chốn)",
+        exampleEn: "The artisan whose workshop we visited yesterday produces wonderful ceramics.",
+        exampleVi: "Nghệ nhân có xưởng gốm mà chúng tôi ghé thăm hôm qua làm ra những tác phẩm gốm tuyệt đẹp.",
+        examTrapVi: "Không dùng 'that' trong mệnh đề quan hệ có dấu phẩy (không xác định) hoặc sau giới từ!"
+      }
     ],
     interactiveExercises: [
       {
         id: "ex-1",
         type: "multiple-choice",
-        question: "Choose the correct completion: 'Hardly _______ the gate when the watchdog began to bark.'",
-        options: ["had they approached", "they had approached", "did they approach", "have they approached"],
-        correctAnswer: "had they approached",
-        explanationVi: "Đảo ngữ quá khứ hoàn thành sau 'Hardly': Hardly + had + S + V3/ed + when...",
+        question: "The _______ you practice speaking English, the _______ fluent you will become.",
+        options: ["more / more", "most / more", "more / much", "much / more"],
+        correctAnswer: "more / more",
+        explanationVi: "Cấu trúc so sánh kép đối ứng: The more + S + V, the more + adj + S + V."
       },
       {
         id: "ex-2",
-        type: "sentence-transformation",
-        question: "Rewrite using SOONER: 'As soon as he stepped outside, the rain started pouring down.'",
-        options: [
-          "No sooner had he stepped outside than the rain started pouring down.",
-          "No sooner he had stepped outside when the rain started pouring down.",
-          "No sooner did he step outside then the rain started pouring down.",
-        ],
-        correctAnswer: "No sooner had he stepped outside than the rain started pouring down.",
-        explanationVi: "Cấu trúc chuẩn đề thi Chuyên: No sooner had + S + V3 than + S + V2.",
+        type: "multiple-choice",
+        question: "The local government has decided to _______ an investigation into environmental pollution.",
+        options: ["carry out", "look after", "give up", "put off"],
+        correctAnswer: "carry out",
+        explanationVi: "Cụm động từ 'carry out an investigation' mang nghĩa tiến hành một cuộc điều tra."
       },
+      {
+        id: "ex-3",
+        type: "multiple-choice",
+        question: "Ha Long Bay, _______ is recognized by UNESCO, attracts millions of travelers every year.",
+        options: ["which", "that", "where", "whom"],
+        correctAnswer: "which",
+        explanationVi: "Mệnh đề quan hệ không xác định có dấu phẩy bổ nghĩa cho danh từ chỉ địa danh 'Ha Long Bay', làm chủ ngữ cho 'is recognized' nên dùng 'which' (không dùng 'that')."
+      },
+      {
+        id: "ex-4",
+        type: "multiple-choice",
+        question: "Her grandfather's old diary was _______ to the researchers.",
+        options: ["invaluable", "valueless", "value", "valuablely"],
+        correctAnswer: "invaluable",
+        explanationVi: "'Invaluable' nghĩa là vô giá, cực kỳ quý báu (đóng vai trò tính từ sau was)."
+      }
     ],
-    tutorTip: `Bí quyết thi vào 10: Hãy lập cuốn sổ tay ghi lại các cặp từ đi liền nhau (Collocations) và cấu trúc câu đặc biệt để tự tin đạt điểm tuyệt đối nhé!`,
-    createdAt: new Date().toISOString(),
+    tutorTip: "Bí kíp thi vào 10: Hãy tích cực luyện đề tổng hợp và ghi chép 'sổ tay lỗi sai' (Error Log) sau mỗi lần làm đề để phát hiện những bẫy ngữ pháp quen thuộc!",
+    createdAt: new Date().toISOString()
   };
 }
 
@@ -1795,7 +2224,70 @@ function generateFallbackQuiz(topic: string, grade: number = 6, requestedCount: 
     },
   ];
 
-  const secondaryQuestions = [
+  const earlySecondaryQuestions = [
+    {
+      q: "Listen! Someone _______ the piano in the music room.",
+      opts: ["is playing", "plays", "play", "played"],
+      ans: 0,
+      exp: "Có dấu hiệu nhận biết 'Listen!' biểu thị hành động đang diễn ra -> thì Hiện tại tiếp diễn."
+    },
+    {
+      q: "My school is _______ than my brother's school.",
+      opts: ["more modern", "moderner", "modern", "most modern"],
+      ans: 0,
+      exp: "So sánh hơn của tính từ dài 'modern' là 'more modern than'."
+    },
+    {
+      q: "There _______ a lot of modern equipment in our school library.",
+      opts: ["is", "are", "were", "have"],
+      ans: 0,
+      exp: "'Equipment' là danh từ không đếm được nên dùng động từ số ít 'is'."
+    },
+    {
+      q: "_______ it was raining heavily, the students went out to clean up the school yard.",
+      opts: ["Although", "Because", "However", "Despite of"],
+      ans: 0,
+      exp: "Mệnh đề chỉ sự nhượng bộ tương phản có S + V ta dùng 'Although'."
+    },
+    {
+      q: "My uncle _______ live in the countryside when he was a child.",
+      opts: ["used to", "use to", "uses to", "was used to"],
+      ans: 0,
+      exp: "Thói quen trong quá khứ đã chấm dứt dùng 'used to + V-inf'."
+    },
+    {
+      q: "You _______ be late for school; it is against the school regulations.",
+      opts: ["mustn't", "needn't", "should", "can"],
+      ans: 0,
+      exp: "Quy định cấm đoán nghiêm ngặt ta dùng 'mustn't' (không được phép)."
+    },
+    {
+      q: "She usually _______ up at 6 a.m., but today she is sleeping late.",
+      opts: ["wakes", "is waking", "wake", "waked"],
+      ans: 0,
+      exp: "Thói quen thường nhật với trạng từ tần suất 'usually' chia thì Hiện tại đơn."
+    },
+    {
+      q: "Eating a lot of fast food is not good _______ your health.",
+      opts: ["for", "at", "to", "with"],
+      ans: 0,
+      exp: "Cụm cố định: be good for something (tốt cho cái gì)."
+    },
+    {
+      q: "They have decided to _______ warm clothes to poor children in mountainous areas.",
+      opts: ["donate", "donation", "donating", "donates"],
+      ans: 0,
+      exp: "Cấu trúc: decide to + V-inf (quyết định làm gì)."
+    },
+    {
+      q: "The cinema is located _______ the bookstore and the supermarket.",
+      opts: ["between", "among", "in", "next"],
+      ans: 0,
+      exp: "Ở giữa hai đối tượng A và B dùng 'between A and B'."
+    },
+  ];
+
+  const lateSecondaryQuestions = [
     {
       q: "Choose the correct word: 'Neither Lan nor her brothers _______ going to the concert.'",
       opts: ["are", "is", "was", "has been"],
@@ -1888,7 +2380,12 @@ function generateFallbackQuiz(topic: string, grade: number = 6, requestedCount: 
     },
   ];
 
-  const baseQuestions = isPrimary ? primaryQuestions : secondaryQuestions;
+  let baseQuestions = primaryQuestions;
+  if (Number(grade) >= 8) {
+    baseQuestions = lateSecondaryQuestions;
+  } else if (Number(grade) >= 6) {
+    baseQuestions = earlySecondaryQuestions;
+  }
   const questions: any[] = [];
 
   for (let i = 0; i < count; i++) {
@@ -1959,16 +2456,16 @@ Format your response in STRICT JSON:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: systemPrompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.5,
       },
+      endpointName: "Tutor Quiz",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     if (!parsed.id) parsed.id = `quiz-${Date.now()}`;
     if (!Array.isArray(parsed.questions) || parsed.questions.length < parsedCount) {
       // If AI generated fewer questions than requested, fill with fallback
@@ -1985,8 +2482,8 @@ Format your response in STRICT JSON:
     parsed.grade = gradeNum;
     parsed.topic = topic;
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Tutor quiz error:", error);
+  } catch (error: any) {
+    console.warn("AI Tutor quiz using fallback due to:", error?.message || error);
     return res.json(generateFallbackQuiz(req.body.topic, Number(req.body.grade) || 6, Number(req.body.count) || 5));
   }
 });
@@ -2058,19 +2555,19 @@ Format in STRICT JSON:
   }
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: systemPrompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.5,
       },
+      endpointName: "Tutor Grammar",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Tutor grammar error:", error);
+  } catch (error: any) {
+    console.warn("AI Tutor grammar using fallback due to:", error?.message || error);
     return res.json({
       term: req.body.grammarPoint || "Ngữ pháp",
       cefrLevel: "A1/A2",
@@ -2197,19 +2694,19 @@ Format in STRICT JSON:
 
     const systemPrompt = isPrimary ? primaryPrompt : secondaryPrompt;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, {
       contents: systemPrompt,
       config: {
         responseMimeType: "application/json",
         temperature: 0.5,
       },
+      endpointName: "Tutor Vocab",
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = JSON.parse(cleanJsonText(response.text || "{}"));
     return res.json(parsed);
-  } catch (error) {
-    console.error("AI Tutor vocab error:", error);
+  } catch (error: any) {
+    console.warn("AI Tutor vocab using fallback due to:", error?.message || error);
     return res.json({
       word: req.body.word || "wonderful",
       ipa: "/ˈwʌndəfl/",

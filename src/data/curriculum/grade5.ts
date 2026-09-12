@@ -56,10 +56,10 @@ export const GRADE_5_UNITS: UnitData[] = [
       ],
       contextVi: 'Chia sẻ lối sống lành mạnh cùng bạn học.',
       sampleDialogue: {
-        speakerA: 'What do you do after school, Mai?',
-        lineA: 'Do you study immediately?',
-        speakerB: 'I usually play badminton with my sister first.',
-        lineB: 'Then I do my homework in the evening.',
+        speakerA: 'Tom',
+        lineA: 'What do you do in the afternoon, Mai?',
+        speakerB: 'Mai',
+        lineB: 'I usually play badminton with my sister. Then I do my homework.',
       },
       substitutionDrills: [
         { prompt: 'Nói em luôn luôn đánh răng sau bữa ăn:', expectedPattern: 'I always brush my teeth after meals.', cueWords: ['always brush', 'after meals'] },

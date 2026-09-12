@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GrammarRule } from '../types';
 import { Lightbulb, CheckCircle2, XCircle, BookOpen, Layers, Award, ArrowRight } from 'lucide-react';
 
@@ -16,6 +16,13 @@ export const GrammarModule: React.FC<GrammarModuleProps> = ({
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
   const [userAnswers, setUserAnswers] = useState<Record<string, number>>({});
   const [showResults, setShowResults] = useState(false);
+
+  // Reset step & answers when grammar rule or unit changes
+  useEffect(() => {
+    setActiveStep(1);
+    setUserAnswers({});
+    setShowResults(false);
+  }, [grammar.id]);
 
   const handleSelectOption = (exerciseId: string, optionIndex: number) => {
     setUserAnswers(prev => ({ ...prev, [exerciseId]: optionIndex }));

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SentencePattern } from '../types';
 import { audioManager, startSpeechRecognition, calculateTextSimilarity } from '../utils/audioUtils';
-import { Volume2, Mic, MicOff, CheckCircle2, RotateCcw, Sparkles, MessageSquare } from 'lucide-react';
+import { Volume2, Mic, MicOff, CheckCircle2, RotateCcw, Sparkles, MessageSquare, Languages } from 'lucide-react';
+import { PrimarySentenceHub } from './PrimarySentenceHub';
 
 interface SentenceModuleProps {
   sentencePattern: SentencePattern;
@@ -18,10 +19,22 @@ export const SentenceModule: React.FC<SentenceModuleProps> = ({
   const [slotValues, setSlotValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     sentencePattern.slots.forEach(slot => {
-      initial[slot.slotName] = slot.options[0];
+      initial[slot.slotName] = slot.options[0] || '';
     });
     return initial;
   });
+
+  // Re-sync slot values whenever sentencePattern changes (e.g. switching units)
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    sentencePattern.slots.forEach(slot => {
+      next[slot.slotName] = slot.options[0] || '';
+    });
+    setSlotValues(next);
+    setSpokenText('');
+    setPronunciationScore(null);
+    setRecError(null);
+  }, [sentencePattern.id]);
 
   // Speech recognition states
   const [isRecording, setIsRecording] = useState(false);
@@ -114,13 +127,20 @@ export const SentenceModule: React.FC<SentenceModuleProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Kho mẫu câu tương tác riêng biệt dành cho học sinh Tiểu học (Lớp 3 - 4 - 5) */}
+      {grade <= 5 && (
+        <PrimarySentenceHub grade={grade} onAddXP={onAddXP} />
+      )}
+
       {/* Introduction Card */}
       <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 flex items-start gap-3">
         <div className="p-2 rounded-lg bg-indigo-600 text-white shrink-0 mt-0.5">
           <MessageSquare className="w-5 h-5" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-slate-900">Mẫu câu giao tiếp & Cấu trúc diễn đạt</h3>
+          <h3 className="text-base font-bold text-slate-900">
+            {grade <= 5 ? 'Mẫu câu trọng tâm của bài học' : 'Mẫu câu giao tiếp & Cấu trúc diễn đạt'}
+          </h3>
           <p className="text-xs text-slate-600 mt-1">
             {sentencePattern.contextVi}
           </p>
@@ -243,6 +263,13 @@ export const SentenceModule: React.FC<SentenceModuleProps> = ({
           </span>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDialogueTranslation(!showDialogueTranslation)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all"
+            >
+              <Languages className="w-3.5 h-3.5 text-slate-500" />
+              <span>{showDialogueTranslation ? 'Ẩn lời dịch' : 'Hiện lời dịch'}</span>
+            </button>
             <button
               onClick={handlePlayFullDialogue}
               disabled={isPlayingFullDialogue}

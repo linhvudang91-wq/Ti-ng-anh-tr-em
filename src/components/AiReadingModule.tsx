@@ -145,12 +145,19 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
 
     const isShort = readingLength === 'short';
     const targetWords = isShort ? '50-60' : '120-150';
-    setLoadingStep(`Đang phân tích chủ đề và chuẩn hóa độ dài ${targetWords} từ...`);
+    setLoadingStep(`Đang chuẩn bị chủ đề và chuẩn hóa độ dài ${targetWords} từ...`);
+
+    let timer1: any = null;
+    let timer2: any = null;
 
     try {
-      const timer1 = setTimeout(() => {
-        setLoadingStep('Gemini 2.5 đang tạo bài đọc, dịch song ngữ và phân tích cấu trúc...');
-      }, 1200);
+      timer1 = setTimeout(() => {
+        setLoadingStep('AI đang biên soạn bài đọc, dịch song ngữ và phân tích cấu trúc...');
+      }, 1000);
+
+      timer2 = setTimeout(() => {
+        setLoadingStep('Đang tối ưu kết nối và hoàn thiện câu hỏi đọc hiểu...');
+      }, 3500);
 
       const res = await fetch('/api/ai/generate-reading', {
         method: 'POST',
@@ -166,6 +173,7 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
       });
 
       clearTimeout(timer1);
+      clearTimeout(timer2);
 
       if (!res.ok) {
         throw new Error('Không thể kết nối máy chủ AI');
@@ -179,9 +187,10 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
       setActiveTab('reading');
       onAwardXp(15); // +15 XP for generating a new reading passage
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg('Không thể kết nối máy chủ AI lúc này. Hệ thống đã mở bài đọc mẫu phù hợp cho bạn!');
-      // Fallback to cluster default
+      if (timer1) clearTimeout(timer1);
+      if (timer2) clearTimeout(timer2);
+      console.warn('Reading passage fallback applied:', err?.message || err);
+      // Fallback to cluster default smoothly without alarming error toast
       const matchedCluster = THEMATIC_CLUSTERS.find(c => c.nameVi === finalTopic) || THEMATIC_CLUSTERS[0];
       const fallback = isShort && matchedCluster.shortPassage ? matchedCluster.shortPassage : matchedCluster.defaultPassage;
       setPassage(fallback);

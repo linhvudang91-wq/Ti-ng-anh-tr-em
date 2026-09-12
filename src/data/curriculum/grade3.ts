@@ -717,10 +717,10 @@ export const GRADE_3_UNITS: UnitData[] = [
       slots: [{ slotName: 'toy', options: ['car', 'doll', 'robot', 'puzzle', 'kite'] }],
       contextVi: 'Khoe đồ chơi yêu thích và rủ bạn cùng chơi.',
       sampleDialogue: {
-        speakerA: 'I have a new robot. It has blue lights!',
-        lineA: 'Do you have one?',
-        speakerB: 'No, I don\'t.',
-        lineB: 'Can we play together?',
+        speakerA: 'Nam',
+        lineA: 'I have a new robot. Do you have one?',
+        speakerB: 'Peter',
+        lineB: 'No, I don\'t. Can we play together?',
       },
       substitutionDrills: [
         { prompt: 'Nói em có một chú gấu bông:', expectedPattern: 'I have a teddy bear.', cueWords: ['I have', 'teddy bear'] },

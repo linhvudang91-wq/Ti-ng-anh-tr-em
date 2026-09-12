@@ -499,6 +499,20 @@ export const VocabularyModule: React.FC<VocabularyModuleProps> = ({
       {/* MODE 0: THEMATIC CLUSTERS */}
       {activeMode === 'thematic-clusters' && (
         <div className="space-y-4">
+          {grade <= 5 && (
+            <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 flex items-start gap-3">
+              <span className="text-2xl shrink-0">🎈</span>
+              <div className="space-y-0.5">
+                <h4 className="text-sm font-bold text-amber-950">
+                  Góc Từ Vựng Trọng Tâm Tiểu Học (Lớp {grade})
+                </h4>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  Các từ được gom theo từng nhóm đồ dùng, gia đình, con vật và hoạt động quen thuộc. Bé hãy nghe phát âm chuẩn và luyện tập qua Thẻ từ hoặc trò chơi Nghe chọn từ nhé!
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -623,6 +637,26 @@ export const VocabularyModule: React.FC<VocabularyModuleProps> = ({
       {/* MODE 1: FLASHCARDS */}
       {activeMode === 'flashcards' && currentWord && (
         <div className="flex flex-col items-center">
+          {/* Active Thematic Cluster Banner */}
+          {selectedTopicId && selectedTopicId !== 'all' && (
+            <div className="w-full max-w-lg mb-3 flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-base">
+                  {THEMATIC_CLUSTERS.find(c => c.id === selectedTopicId)?.icon || '🗂️'}
+                </span>
+                <span className="font-semibold text-blue-900">
+                  Nhóm chủ đề: <strong>{THEMATIC_CLUSTERS.find(c => c.id === selectedTopicId)?.nameVi || selectedTopicId}</strong>
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedTopicId('all')}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline ml-2"
+              >
+                Học tất cả từ
+              </button>
+            </div>
+          )}
+
           <div
             id="flashcard-container"
             onClick={() => setIsFlipped(!isFlipped)}
@@ -754,6 +788,26 @@ export const VocabularyModule: React.FC<VocabularyModuleProps> = ({
       {/* MODE 2: LISTEN & CHOOSE (NGHE CHỌN TỪ - HOÀN THIỆN ĐỦ 4 LỰA CHỌN CHUẨN BÀI HỌC) */}
       {activeMode === 'listen-choose' && currentWord && (
         <div className="max-w-xl mx-auto space-y-4">
+          {/* Active Thematic Cluster Banner */}
+          {selectedTopicId && selectedTopicId !== 'all' && (
+            <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-base">
+                  {THEMATIC_CLUSTERS.find(c => c.id === selectedTopicId)?.icon || '🗂️'}
+                </span>
+                <span className="font-semibold text-blue-900">
+                  Luyện tập theo nhóm: <strong>{THEMATIC_CLUSTERS.find(c => c.id === selectedTopicId)?.nameVi || selectedTopicId}</strong>
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedTopicId('all')}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline ml-2"
+              >
+                Luyện tất cả từ
+              </button>
+            </div>
+          )}
+
           {/* Top Control Bar for Listening Mode */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
             {/* Target Type Selector */}

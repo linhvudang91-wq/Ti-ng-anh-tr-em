@@ -136,6 +136,12 @@ const GRADE_VOCAB_COLLECTIONS: Record<number, { category: string; words: string[
     { category: 'Môi trường & Thiên tai', words: ['disaster', 'pollution', 'tsunami', 'earthquake', 'evacuate', 'biodiversity'] },
     { category: 'Khoa học & Công nghệ', words: ['artificial intelligence', 'breakthrough', 'nanotechnology', 'sustainable', 'genetic'] },
   ],
+  9: [
+    { category: 'Làng nghề & Văn hóa (Unit 1)', words: ['artisan', 'authenticity', 'handicraft', 'pass down', 'set up', 'preservation'] },
+    { category: 'Đô thị & Giao thông (Unit 2)', words: ['metropolitan', 'congestion', 'convenient', 'cosmopolitan', 'skyscraper', 'suburb'] },
+    { category: 'Tâm lý & Kỹ năng sống (Unit 3)', words: ['counselor', 'resilience', 'overcome', 'anxiety', 'expectation', 'well-being'] },
+    { category: 'Du lịch & Kỳ quan (Unit 5-6)', words: ['destination', 'breathtaking', 'magnificent', 'archaeological', 'biodiversity', 'hospitality'] },
+  ],
 };
 
 export const AiTutorView: React.FC<AiTutorViewProps> = ({
@@ -188,7 +194,7 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
     selectedGrade <= 5 ? 'primary' : 'secondary'
   );
   const [vocabSelectedGrade, setVocabSelectedGrade] = useState<number>(
-    selectedGrade <= 5 ? Math.max(3, Math.min(5, selectedGrade)) : Math.max(6, Math.min(8, selectedGrade))
+    selectedGrade <= 5 ? Math.max(3, Math.min(5, selectedGrade)) : Math.max(6, Math.min(9, selectedGrade))
   );
   const [isExplainingVocab, setIsExplainingVocab] = useState(false);
   const [vocabResult, setVocabResult] = useState<VocabExplainResult | null>(null);
@@ -219,7 +225,7 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
       }
     } else {
       setVocabLevelGroup('secondary');
-      setVocabSelectedGrade(Math.max(6, Math.min(8, selectedGrade)));
+      setVocabSelectedGrade(Math.max(6, Math.min(9, selectedGrade)));
       if (targetLevel.includes('Pre-A1') || (targetLevel.includes('A1') && !targetLevel.includes('B1'))) {
         setTargetLevel(selectedGrade <= 7 ? 'A2+ (Nâng cao Lớp 7-8)' : 'B2 (Chuyên Anh 10)');
       }
@@ -1267,7 +1273,7 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  🏫 Cấp 2: THCS (Lớp 6-7-8)
+                  🏫 Cấp 2: THCS (Lớp 6-7-8-9)
                 </button>
               </div>
             </div>
@@ -1302,6 +1308,7 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
                     { g: 6, label: 'Lớp 6 (A2 KET)', desc: 'Trường mới, Nhà ở, Bạn bè' },
                     { g: 7, label: 'Lớp 7 (A2+ Thi HSG)', desc: 'Giao thông, Năng lượng, Lễ hội' },
                     { g: 8, label: 'Lớp 8 (B1 PET & Chuyên)', desc: 'Môi trường, Đời sống số, Phong cách' },
+                    { g: 9, label: 'Lớp 9 (B1+/B2 Luyện thi 10)', desc: 'Làng nghề, Đô thị hóa, Áp lực thi cử' },
                   ].map((item) => (
                     <button
                       key={item.g}
