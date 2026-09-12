@@ -1,0 +1,6 @@
+{
+  "name": "Tiếng Anh Cấp 1 & Cấp 2 (Lớp 3-9)",
+  "description": "Nền tảng học Tiếng Anh toàn diện chuẩn GDPT 2018 cho Cấp 1 (Lớp 3-5) và Cấp 2 (Lớp 6-9) với 10 bài học chuẩn mỗi lớp, AI Mở rộng bài học nâng cao và Gia sư AI đồng hành.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
