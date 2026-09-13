@@ -6,6 +6,7 @@ import { GRADE_6_UNITS } from './curriculum/grade6';
 import { GRADE_7_UNITS } from './curriculum/grade7';
 import { GRADE_8_UNITS } from './curriculum/grade8';
 import { GRADE_9_UNITS } from './curriculum/grade9';
+import { UNIT_VOCABULARY_DATABASE } from './curriculum/unitVocabularyDatabase';
 
 export const TEXTBOOK_NAMES: Record<TextbookSeries, { name: string; publisher: string; badge: string }> = {
   'global-success': {
@@ -25,7 +26,7 @@ export const TEXTBOOK_NAMES: Record<TextbookSeries, { name: string; publisher: s
   },
 };
 
-export const CURRICULUM_UNITS: UnitData[] = [
+const RAW_UNITS: UnitData[] = [
   ...GRADE_3_UNITS,
   ...GRADE_4_UNITS,
   ...GRADE_5_UNITS,
@@ -34,6 +35,18 @@ export const CURRICULUM_UNITS: UnitData[] = [
   ...GRADE_8_UNITS,
   ...GRADE_9_UNITS,
 ];
+
+// Tự động tích hợp kho từ vựng chuẩn hóa 20-22 từ/unit (cơ bản + nâng cao) vào từng Unit
+export const CURRICULUM_UNITS: UnitData[] = RAW_UNITS.map((unit) => {
+  const dbVocab = UNIT_VOCABULARY_DATABASE[unit.id];
+  if (dbVocab && dbVocab.length > 0) {
+    return {
+      ...unit,
+      vocabularies: dbVocab,
+    };
+  }
+  return unit;
+});
 
 /**
  * Lấy danh sách Unit theo lớp (Grade 3 - 9)

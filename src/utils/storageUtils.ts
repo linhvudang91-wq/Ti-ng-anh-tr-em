@@ -239,14 +239,61 @@ export function updateUserProfile(id: string, updates: Partial<UserProfile>): Us
 }
 
 export function deleteUserProfile(id: string): UserProfile[] {
-  const users = getAllUsers().filter(u => u.id !== id);
-  const remaining = users.length > 0 ? users : initialUsers;
-  saveAllUsers(remaining);
-  const activeUser = getActiveUser();
-  if (activeUser.id === id) {
-    setActiveUserId(remaining[0].id);
+  const currentUsers = getAllUsers();
+  const remaining = currentUsers.filter(u => u.id !== id);
+  let finalUsers = remaining;
+  if (finalUsers.length === 0) {
+    const defaultUser: UserProfile = {
+      id: `user-${Date.now()}`,
+      name: 'Người học mới',
+      avatar: '🌟',
+      grade: 6,
+      educationLevel: 'cap-2',
+      target: 'standard',
+      createdAt: new Date().toISOString(),
+      progress: {
+        ...defaultProgressTemplate,
+        xp: 0,
+        streakDays: 1,
+        totalCorrectAnswers: 0,
+        completedUnits: [],
+        quizScores: {},
+      },
+    };
+    finalUsers = [defaultUser];
   }
-  return remaining;
+  saveAllUsers(finalUsers);
+  const activeUser = getActiveUser();
+  if (activeUser.id === id || !finalUsers.some(u => u.id === activeUser.id)) {
+    setActiveUserId(finalUsers[0].id);
+  }
+  return finalUsers;
+}
+
+export function toggleUnitCompletion(unitId: string, forceStatus?: boolean, targetUserId?: string): UserProgress {
+  const active = getActiveUser();
+  const userId = targetUserId || active.id;
+  const allUsers = getAllUsers();
+  const user = allUsers.find(u => u.id === userId) || active;
+
+  const currentProg = user.progress || defaultProgressTemplate;
+  const isCompleted = currentProg.completedUnits.includes(unitId);
+  const shouldComplete = forceStatus !== undefined ? forceStatus : !isCompleted;
+
+  let newCompleted = [...currentProg.completedUnits];
+  if (shouldComplete && !isCompleted) {
+    newCompleted.push(unitId);
+  } else if (!shouldComplete && isCompleted) {
+    newCompleted = newCompleted.filter(id => id !== unitId);
+  }
+
+  const updatedProgress: UserProgress = {
+    ...currentProg,
+    completedUnits: newCompleted,
+  };
+
+  updateUserProfile(userId, { progress: updatedProgress });
+  return updatedProgress;
 }
 
 // Existing API compatibility: operates directly on the active user profile!

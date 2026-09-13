@@ -22,6 +22,8 @@ interface NavbarProps {
   savedLessonsCount?: number;
   onOpenDailyVocab?: () => void;
   onOpenDailyMission?: () => void;
+  onOpenPersonalizedPathway?: () => void;
+  onSwitchLevelOrUser?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -43,6 +45,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   savedLessonsCount = 0,
   onOpenDailyVocab,
   onOpenDailyMission,
+  onOpenPersonalizedPathway,
+  onSwitchLevelOrUser,
 }) => {
   const getGradeTierName = (grade: GradeLevel) => {
     if (grade <= 5) return 'Tiểu học (Lớp 3–5)';
@@ -197,6 +201,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden xl:inline">Đo trình độ</span>
             </button>
 
+            {/* Lộ trình cá nhân 10 bài học đầu tiên */}
+            {onOpenPersonalizedPathway && (
+              <button
+                id="btn-nav-personalized-pathway"
+                onClick={onOpenPersonalizedPathway}
+                className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-lg text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all shadow-2xs"
+                title="Lộ trình cá nhân hóa theo từng người học căn cứ vào 10 bài học đầu tiên"
+              >
+                <Target className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline">Lộ trình 10 bài</span>
+              </button>
+            )}
+
             {/* Nhiệm vụ học tập hàng ngày tích hợp AI & Lộ trình năm */}
             {onOpenDailyMission && (
               <button
@@ -269,6 +286,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Users className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Báo cáo PH</span>
             </button>
+
+            {/* Switch Level & Learner Portal Button */}
+            {onSwitchLevelOrUser && (
+              <button
+                id="btn-nav-switch-level-portal"
+                onClick={onSwitchLevelOrUser}
+                className="hidden md:flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-800 transition-all shadow-2xs"
+                title="Quay lại Cổng phân loại Cấp 1, Cấp 2 và chọn người học"
+              >
+                <span className="text-xs">🔄</span>
+                <span>Đổi Cấp / Học sinh</span>
+              </button>
+            )}
 
             {/* Desktop User Profile Button */}
             {activeUser && (

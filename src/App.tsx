@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { GradeLevel, TextbookSeries, Semester, LearningModuleType, UserProfile, GeneratedLesson, EducationLevel, AiTutorTab } from './types';
+import {
+  GradeLevel,
+  TextbookSeries,
+  Semester,
+  LearningModuleType,
+  UserProfile,
+  GeneratedLesson,
+  EducationLevel,
+  AiTutorTab,
+  LessonMode,
+  AppLayer,
+} from './types';
 import { CURRICULUM_UNITS, TEXTBOOK_NAMES, getUnitsByGrade } from './data/curriculumData';
 import {
   getActiveUser,
@@ -21,6 +32,8 @@ import { RealLifeModule } from './components/RealLifeModule';
 import { QuizReviewModule } from './components/QuizReviewModule';
 import { AiTutorView } from './components/AiTutorView';
 import { AiReadingModule } from './components/AiReadingModule';
+import { PortalLayer } from './components/PortalLayer';
+import { LessonModeSelector } from './components/LessonModeSelector';
 
 // Modals
 import { PlacementTestModal } from './components/PlacementTestModal';
@@ -31,6 +44,7 @@ import { LoginProfileModal } from './components/LoginProfileModal';
 import { SavedLessonsModal } from './components/SavedLessonsModal';
 import { DailyVocabKnowledgeModal } from './components/DailyVocabKnowledgeModal';
 import { DailyMissionModal } from './components/DailyMissionModal';
+import { PersonalizedPathwayModal } from './components/PersonalizedPathwayModal';
 
 import {
   BookOpen,
@@ -54,6 +68,11 @@ export default function App() {
   // Multi-user Profile State
   const [activeUser, setActiveUser] = useState<UserProfile>(() => getActiveUser());
   const [showLoginProfileModal, setShowLoginProfileModal] = useState<boolean>(false);
+  const [showPersonalizedPathway, setShowPersonalizedPathway] = useState<boolean>(false);
+
+  // Multi-layer Architecture & Lesson Mode State
+  const [appLayer, setAppLayer] = useState<AppLayer>('layer-portal');
+  const [lessonMode, setLessonMode] = useState<LessonMode>('continue-lesson');
 
   // Curriculum Navigation State
   const [grade, setGrade] = useState<GradeLevel>(activeUser?.grade || 9);
@@ -212,6 +231,67 @@ export default function App() {
 
   const tierInfo = getTierBadge(grade);
 
+  // Layer 1: Outer classification & Learner Selection Portal
+  if (appLayer === 'layer-portal') {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-200 flex flex-col">
+        <PortalLayer
+          selectedLevel={educationLevel}
+          onSelectLevel={(lvl) => {
+            setEducationLevel(lvl);
+            if (lvl === 'cap-1' && grade > 5) setGrade(3);
+            if (lvl === 'cap-2' && grade < 6) setGrade(6);
+          }}
+          activeUser={activeUser}
+          onSelectUser={handleUserSelect}
+          onEnterCurriculum={() => setAppLayer('layer-curriculum')}
+          onOpenPersonalizedPathway={(u) => {
+            handleUserSelect(u);
+            setShowPersonalizedPathway(true);
+          }}
+        />
+
+        {/* Global Modals accessible from Portal Layer */}
+        <LoginProfileModal
+          isOpen={showLoginProfileModal}
+          onClose={() => setShowLoginProfileModal(false)}
+          activeUser={activeUser}
+          onSelectUser={handleUserSelect}
+          onOpenPersonalizedPathway={(u) => {
+            handleUserSelect(u);
+            setShowPersonalizedPathway(true);
+          }}
+        />
+
+        <PersonalizedPathwayModal
+          isOpen={showPersonalizedPathway}
+          onClose={() => setShowPersonalizedPathway(false)}
+          activeUser={activeUser}
+          onSwitchUser={handleUserSelect}
+          onSelectUnit={(unitId, g, module) => {
+            setGrade(g);
+            setSelectedUnitId(unitId);
+            if (module) {
+              setActiveModule(module as any);
+            }
+            setAppLayer('layer-curriculum');
+          }}
+          onOpenPlacementTest={() => {
+            setShowPersonalizedPathway(false);
+            setShowPlacementTest(true);
+          }}
+        />
+
+        <PlacementTestModal
+          isOpen={showPlacementTest}
+          onClose={() => setShowPlacementTest(false)}
+          onAddXP={handleAddXP}
+        />
+      </div>
+    );
+  }
+
+  // Layer 2: Next Layer - Lessons & Curriculum based on Level Choice
   return (
     <div className="min-h-screen bg-slate-50/60 text-slate-900 flex flex-col font-sans selection:bg-blue-200">
       {/* 1. Global Navigation Bar */}
@@ -234,10 +314,42 @@ export default function App() {
         savedLessonsCount={(progress.savedLessons?.length || 0) + (progress.savedPassages?.length || 0)}
         onOpenDailyVocab={() => setShowDailyVocabModal(true)}
         onOpenDailyMission={() => setShowDailyMissionModal(true)}
+        onOpenPersonalizedPathway={() => setShowPersonalizedPathway(true)}
+        onSwitchLevelOrUser={() => setAppLayer('layer-portal')}
       />
 
       {/* 2. Main Body Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Layer 2 Breadcrumb & Switch Level/Learner Bar */}
+        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Cấu trúc đa lớp:</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 font-bold text-slate-800 border border-slate-200">
+              <span>{educationLevel === 'cap-1' ? '🎒 Cấp 1 (Tiểu học: Lớp 3–5)' : '🎓 Cấp 2 (THCS: Lớp 6–9)'}</span>
+            </div>
+            <span className="text-slate-300">›</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-50 font-bold text-indigo-900 border border-indigo-200">
+              <span>{activeUser.avatar || '🦁'} {activeUser.name}</span>
+              <span className="text-[10px] text-indigo-600 font-semibold">(Lớp {grade})</span>
+            </div>
+            <span className="text-slate-300">›</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-50 font-bold text-blue-900 border border-blue-200">
+              <span>Unit {activeUnit.unitNumber}: {activeUnit.title}</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-200 text-blue-950 font-extrabold">
+                {activeUnit.vocabularies.length} từ
+              </span>
+            </div>
+          </div>
+
+          <button
+            id="btn-switch-level-portal"
+            onClick={() => setAppLayer('layer-portal')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all shrink-0"
+            title="Quay lại Lớp ngoài cùng để phân loại Cấp 1, Cấp 2 và chọn người học"
+          >
+            <span>🔄 Đổi Cấp / Chọn người học</span>
+          </button>
+        </div>
         {/* Tier Overview Banner */}
         <div
           className={`p-4 rounded-2xl border ${tierInfo.color} flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs`}
@@ -271,12 +383,22 @@ export default function App() {
               </span>
             </button>
 
+            {/* Personalized Pathway 10 Lessons Button */}
+            <button
+              id="personalized-pathway-trigger-btn"
+              onClick={() => setShowPersonalizedPathway(true)}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition-colors flex items-center gap-1.5"
+            >
+              <Target className="w-3.5 h-3.5 text-amber-300" />
+              <span>Lộ trình 10 bài cá nhân</span>
+            </button>
+
             <button
               id="placement-test-trigger-btn"
               onClick={() => setShowPlacementTest(true)}
               className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-slate-800 hover:bg-slate-50 border border-slate-300 shadow-2xs transition-colors"
             >
-              Lộ trình cá nhân hóa
+              Đo trình độ
             </button>
           </div>
         </div>
@@ -533,6 +655,14 @@ export default function App() {
           </div>
         </div>
 
+        {/* Lesson Mode Selector: 3 Chế độ học tập */}
+        <LessonModeSelector
+          currentMode={lessonMode}
+          onModeChange={(m) => setLessonMode(m)}
+          completedUnitsCount={progress.completedUnits?.length || 0}
+          totalUnitsCount={availableUnits.length}
+        />
+
         {/* Units Navigation Row */}
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -611,7 +741,7 @@ export default function App() {
                         {getUnitIcon(u.unitNumber, u.title, isChuyen)}
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span
                             className={`text-xs font-black uppercase ${
                               isChuyen ? 'text-amber-700' : 'text-blue-600'
@@ -624,18 +754,42 @@ export default function App() {
                               {u.targetTierBadge}
                             </span>
                           )}
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                            📚 {u.vocabularies.length} từ
+                          </span>
                           {quizScore !== undefined && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                               {quizScore}đ
                             </span>
                           )}
                         </div>
-                        <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-1">
+                        <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-1 mt-0.5">
                           {u.title}
                         </h3>
                         <p className="text-[11px] text-slate-500 line-clamp-1">
                           {u.themeVi}
                         </p>
+                        {/* Mode Context Badge */}
+                        <div className="mt-1.5">
+                          {lessonMode === 'new-lesson' && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 inline-flex items-center gap-1">
+                              <span>⭐ Bài mới</span>
+                              <span className="font-normal opacity-80">• 12 từ SGK</span>
+                            </span>
+                          )}
+                          {lessonMode === 'continue-lesson' && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                              <span>{unitProgress === 100 ? '✅ Hoàn thành' : unitProgress > 0 ? '⏳ Tiếp tục học' : '📖 Sẵn sàng'}</span>
+                              <span className="font-normal opacity-80">• {unitProgress}%</span>
+                            </span>
+                          )}
+                          {lessonMode === 'review-lesson' && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1">
+                              <span>🔄 Ôn tập</span>
+                              <span className="font-normal opacity-80">• 8-10 từ nâng cao</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -653,7 +807,9 @@ export default function App() {
                   {/* Visual Progress Bar beneath Unit Title */}
                   <div className="mt-3 pt-2.5 border-t border-slate-100/80 space-y-1">
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-slate-500 font-semibold">Tiến độ bài học</span>
+                      <span className="text-slate-500 font-semibold">
+                        {lessonMode === 'review-lesson' ? 'Điểm kiểm tra / Độ vững' : 'Tiến độ hoàn thành'}
+                      </span>
                       <span
                         className={`font-black ${
                           unitProgress === 100
@@ -901,6 +1057,7 @@ export default function App() {
                   onAddXP={handleAddXP}
                   grade={activeUnit.grade}
                   onOpenDailyVocab={() => setShowDailyVocabModal(true)}
+                  lessonMode={lessonMode}
                   onSwitchToReading={(topic) => {
                     setReadingInitialTopic(topic);
                     setActiveModule('ai-reading');
@@ -980,10 +1137,17 @@ export default function App() {
             </button>
             <span>•</span>
             <button
+              onClick={() => setShowPersonalizedPathway(true)}
+              className="hover:text-indigo-600 font-bold text-indigo-700"
+            >
+              Lộ trình 10 bài ({activeUser.name})
+            </button>
+            <span>•</span>
+            <button
               onClick={() => setShowLoginProfileModal(true)}
               className="hover:text-blue-600 font-medium text-blue-700"
             >
-              Hồ sơ người học ({activeUser.name})
+              Hồ sơ người học
             </button>
             <span>•</span>
             <button
@@ -1009,6 +1173,28 @@ export default function App() {
         onClose={() => setShowLoginProfileModal(false)}
         activeUser={activeUser}
         onSelectUser={handleUserSelect}
+        onOpenPersonalizedPathway={(u) => {
+          handleUserSelect(u);
+          setShowPersonalizedPathway(true);
+        }}
+      />
+
+      <PersonalizedPathwayModal
+        isOpen={showPersonalizedPathway}
+        onClose={() => setShowPersonalizedPathway(false)}
+        activeUser={activeUser}
+        onSwitchUser={handleUserSelect}
+        onSelectUnit={(unitId, g, module) => {
+          setGrade(g);
+          setSelectedUnitId(unitId);
+          if (module) {
+            setActiveModule(module as any);
+          }
+        }}
+        onOpenPlacementTest={() => {
+          setShowPersonalizedPathway(false);
+          setShowPlacementTest(true);
+        }}
       />
 
       <PlacementTestModal
@@ -1084,6 +1270,10 @@ export default function App() {
           onOpenVocabularyKnowledge={() => {
             setShowDailyMissionModal(false);
             setShowDailyVocabModal(true);
+          }}
+          onOpenPersonalizedPathway={() => {
+            setShowDailyMissionModal(false);
+            setShowPersonalizedPathway(true);
           }}
         />
       )}

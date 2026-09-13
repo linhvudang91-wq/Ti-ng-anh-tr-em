@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { WordItem, UserProgress, GradeLevel } from '../types';
+import { WordItem, UserProgress, GradeLevel, LessonMode } from '../types';
 import { audioManager, Accent } from '../utils/audioUtils';
 import {
   Volume2,
@@ -31,6 +31,7 @@ interface VocabularyModuleProps {
   grade: number;
   onSwitchToReading?: (topic?: string) => void;
   onOpenDailyVocab?: () => void;
+  lessonMode?: LessonMode;
 }
 
 type PracticeMode = 'thematic-clusters' | 'flashcards' | 'listen-choose' | 'fill-blank' | 'spelling-bee' | 'memory-match';
@@ -43,17 +44,32 @@ export const VocabularyModule: React.FC<VocabularyModuleProps> = ({
   grade,
   onSwitchToReading,
   onOpenDailyVocab,
+  lessonMode,
 }) => {
   const [activeMode, setActiveMode] = useState<PracticeMode>('thematic-clusters');
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [accent, setAccent] = useState<Accent>('US');
   const [isFlipped, setIsFlipped] = useState(false);
-  const [filterCoreOnly, setFilterCoreOnly] = useState(false);
+  const [filterCoreOnly, setFilterCoreOnly] = useState(lessonMode === 'new-lesson');
 
   // Grade-appropriate vocabulary configuration & selective advanced expansion
-  const [enableAdvancedExpansion, setEnableAdvancedExpansion] = useState(false);
+  const [enableAdvancedExpansion, setEnableAdvancedExpansion] = useState(lessonMode === 'review-lesson');
   const [showAllGrades, setShowAllGrades] = useState(false);
+
+  // Sync with lessonMode changes
+  useEffect(() => {
+    if (lessonMode === 'new-lesson') {
+      setFilterCoreOnly(true);
+      setEnableAdvancedExpansion(false);
+    } else if (lessonMode === 'review-lesson') {
+      setFilterCoreOnly(false);
+      setEnableAdvancedExpansion(true);
+    } else {
+      setFilterCoreOnly(false);
+      setEnableAdvancedExpansion(false);
+    }
+  }, [lessonMode]);
 
   // Listen & Choose enhanced states
   const [listenTargetType, setListenTargetType] = useState<'english' | 'vietnamese'>('english');

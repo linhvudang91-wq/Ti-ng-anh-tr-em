@@ -52,6 +52,7 @@ interface DailyMissionModalProps {
   currentGrade: GradeLevel;
   onSelectGrade?: (grade: GradeLevel) => void;
   onOpenVocabularyKnowledge?: () => void;
+  onOpenPersonalizedPathway?: () => void;
 }
 
 export const DailyMissionModal: React.FC<DailyMissionModalProps> = ({
@@ -60,6 +61,7 @@ export const DailyMissionModal: React.FC<DailyMissionModalProps> = ({
   currentGrade,
   onSelectGrade,
   onOpenVocabularyKnowledge,
+  onOpenPersonalizedPathway,
 }) => {
   const [selectedGrade, setSelectedGrade] = useState<GradeLevel>(currentGrade);
   const [selectedSkill, setSelectedSkill] = useState<DailySkillType>('vocabulary');
@@ -744,6 +746,24 @@ export const DailyMissionModal: React.FC<DailyMissionModalProps> = ({
                 <p className="text-xs text-slate-600">
                   Lộ trình 4 giai đoạn logic xuyên suốt năm học giúp bé từng bước tiến bộ từ cơ bản đến chuẩn đầu ra CEFR.
                 </p>
+
+                {onOpenPersonalizedPathway && (
+                  <div className="pt-2">
+                    <button
+                      id="btn-open-personalized-pathway-from-mission"
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenPersonalizedPathway();
+                      }}
+                      className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <Target className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Xem Lộ Trình 10 Bài Học Cá Nhân Hóa Theo Người Học</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* 4 Phases */}

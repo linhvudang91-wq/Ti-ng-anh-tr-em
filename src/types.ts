@@ -2,6 +2,10 @@ export type GradeLevel = 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type EducationLevel = 'cap-1' | 'cap-2';
 
+export type LessonMode = 'new-lesson' | 'continue-lesson' | 'review-lesson';
+
+export type AppLayer = 'layer-portal' | 'layer-curriculum';
+
 export type TextbookSeries = 'global-success' | 'smart-world' | 'friends-plus';
 
 export type Semester = 1 | 2;
@@ -225,6 +229,29 @@ export interface UnitData {
   quizQuestions: QuizQuestion[];
 }
 
+export type GiftRarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type GiftCategory = 'milestone' | 'session-end' | 'streak' | 'mastery' | 'ai-tutor';
+
+export interface GiftStickerItem {
+  id: string;
+  name: string;
+  category: GiftCategory;
+  emoji: string;
+  badgeColor: string; // Tailwind gradient/bg class
+  rarity: GiftRarity;
+  description: string;
+  praiseMessage: string;
+  requirement: string;
+  xpBonus: number;
+}
+
+export interface UnlockedGiftRecord {
+  giftId: string;
+  unlockedAt: string;
+  reason: string;
+  customPraise?: string;
+}
+
 export interface UserProgress {
   xp: number;
   streakDays: number;
@@ -248,6 +275,7 @@ export interface UserProgress {
   savedLessons?: GeneratedLesson[];
   savedPassages?: ReadingPassage[];
   dailyMissionsCompleted?: Record<string, boolean>; // missionId / date -> completed
+  unlockedGifts?: UnlockedGiftRecord[]; // Danh sách quà tặng và sticker bé đã nhận được
 }
 
 export type DailySkillType = 'vocabulary' | 'grammar' | 'listening' | 'speaking' | 'reading' | 'writing';

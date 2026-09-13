@@ -232,73 +232,102 @@ app.post("/api/ai/tutor-generate-lesson", async (req, res) => {
     const {
       topic,
       grade = 9,
-      targetLevel = "B2 (Chuyên Anh 10)",
+      targetLevel = "B1 (Chuẩn GDPT 2018)",
       studentName = "Học sinh",
       excludeWords = [],
+      isB2Requested: explicitB2Requested,
     } = req.body;
     const gradeNum = Number(grade) || 6;
     const isPrimary = gradeNum <= 5;
     const ai = getGenAI();
 
+    // Enforce Pedagogical CEFR Levels:
+    // 1. Primary (Cấp 1: Lớp 3, 4, 5): Strictly A1 (Phù hợp) or A2 (Nâng cao).
+    // 2. Secondary (Cấp 2: Lớp 6, 7, 8, 9): A2 (Phù hợp Lớp 6-7), B1 (Phù hợp Lớp 8-9), and B2 when requested.
+    let effectiveTargetLevel = "";
+    const isB2Requested = !isPrimary && (
+      explicitB2Requested === true ||
+      targetLevel.includes("B2") ||
+      targetLevel.includes("Chuyên")
+    );
+
+    if (isPrimary) {
+      // Primary: Only A1 or A2
+      const isAdvancedPrimary = targetLevel.includes("A2") || targetLevel.toLowerCase().includes("nâng cao");
+      effectiveTargetLevel = isAdvancedPrimary
+        ? "A2 (Tiểu học Nâng cao / Khảo sát vào 6 CLC)"
+        : "A1 (Chuẩn GDPT Tiểu học)";
+    } else {
+      // Secondary: A2, B1, or B2 when requested
+      if (isB2Requested) {
+        effectiveTargetLevel = "B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)";
+      } else if (targetLevel.includes("A2") || gradeNum <= 7) {
+        effectiveTargetLevel = "A2 (Chuẩn GDPT 2018 Lớp 6–7 - Phù hợp)";
+      } else {
+        effectiveTargetLevel = "B1 (Chuẩn GDPT 2018 Lớp 8–9 & Thi vào 10 đại trà - Phù hợp)";
+      }
+    }
+
     if (!ai) {
       // Offline fallback lesson generator with rigorous content
-      return res.json(getFallbackGeneratedLesson(topic, gradeNum, targetLevel, excludeWords));
+      return res.json(getFallbackGeneratedLesson(topic, gradeNum, effectiveTargetLevel, excludeWords));
     }
 
     const wordsToExcludeStr = Array.isArray(excludeWords) && excludeWords.length > 0
       ? `\nCRITICAL VOCABULARY NOVELTY CONSTRAINT (HẠN CHẾ LẶP LẠI TỪ CŨ):
 The student has already mastered these words: [${excludeWords.slice(0, 60).join(", ")}].
-DO NOT reuse or repeat any of these exact words in the "vocabAndCollocations" or practice exercises. You MUST introduce COMPLETELY FRESH, HIGH-YIELD vocabulary suitable for Grade ${gradeNum} (${targetLevel}) to constantly expand their lexicon.`
+DO NOT reuse or repeat any of these exact words in the "vocabAndCollocations" or practice exercises. You MUST introduce COMPLETELY FRESH, HIGH-YIELD vocabulary suitable for Grade ${gradeNum} (${effectiveTargetLevel}) to constantly expand their lexicon.`
       : '';
 
     // Grade-adaptive pedagogical prompts strictly aligned with GDPT 2018
     let gradePedagogicalDirective = "";
     if (gradeNum === 3) {
-      gradePedagogicalDirective = `TARGET: Grade 3 Primary (Pre-A1 Cambridge Starters, Age 8-9).
-Use extremely warm, lively tone with fun emojis. Topics: school items, greetings, colors, family, pets, numbers 1-20. Short 4-7 word sentences. No complex grammar jargon. Focus on simple 'What is this? It is a...', 'How are you?'.`;
+      gradePedagogicalDirective = `TARGET: Grade 3 Primary (Pre-A1/A1 Cambridge Starters, Age 8-9).
+Level: ${effectiveTargetLevel}. Use extremely warm, lively tone with fun emojis. Topics: school items, greetings, colors, family, pets, numbers 1-20. Short 4-7 word sentences. No complex grammar jargon. Focus on simple 'What is this? It is a...', 'How are you?'.`;
     } else if (gradeNum === 4) {
       gradePedagogicalDirective = `TARGET: Grade 4 Primary (A1 Cambridge Movers, Age 9-10).
-Use encouraging, friendly tone. Topics: daily routines, time (What time is it?), subjects, nationalities, abilities (can/can't), present continuous (What are you doing? I am...). Relatable primary school contexts.`;
+Level: ${effectiveTargetLevel}. Use encouraging, friendly tone. Topics: daily routines, time (What time is it?), subjects, nationalities, abilities (can/can't), present continuous (What are you doing? I am...). Relatable primary school contexts.`;
     } else if (gradeNum === 5) {
-      gradePedagogicalDirective = `TARGET: Grade 5 Primary (A1+ Cambridge Flyers & Transition to Grade 6, Age 10-11).
-Topics: holidays, past simple (went, visited, saw, ate), directions (How can I get to...), comparative adjectives (taller, bigger), future intentions (will / be going to). Prepare smoothly for Grade 6 entrance exams.`;
+      gradePedagogicalDirective = `TARGET: Grade 5 Primary (A1/A2 Primary Advanced & Transition to Grade 6, Age 10-11).
+Level: ${effectiveTargetLevel}. Topics: holidays, past simple (went, visited, saw, ate), directions (How can I get to...), comparative adjectives (taller, bigger), future intentions (will / be going to). Prepare smoothly for Grade 6 entrance exams.`;
     } else if (gradeNum === 6) {
       gradePedagogicalDirective = `TARGET: Grade 6 Lower Secondary (A2 Cambridge KET, Age 11-12, Khởi đầu THCS).
-Tone: Motivating, clear, supportive for new secondary students. Topics: My New School, neighbourhood, houses, present simple vs. present continuous, comparative adjectives, prepositions of place, modal verbs (must/should). DO NOT use Grade 9/10 high school entrance exam traps or advanced B2 syntax.`;
+Level: ${effectiveTargetLevel}. Tone: Motivating, clear, supportive for new secondary students. Topics: My New School, neighbourhood, houses, present simple vs. present continuous, comparative adjectives, prepositions of place, modal verbs (must/should). ${isB2Requested ? "Advanced B2 requested: add challenging collocations." : "DO NOT use Grade 9/10 high school entrance exam traps or advanced B2 syntax."}`;
     } else if (gradeNum === 7) {
-      gradePedagogicalDirective = `TARGET: Grade 7 Lower Secondary (A2+/B1, Age 12-13, THCS).
-Topics: Community service, health & lifestyle, music & arts, traffic, sources of energy. Grammar: Conjunctions (although, however, because), past habits (used to + V), -ed/-ing adjectives, future continuous. Focus on communication and school exams.`;
+      gradePedagogicalDirective = `TARGET: Grade 7 Lower Secondary (A2/B1, Age 12-13, THCS).
+Level: ${effectiveTargetLevel}. Topics: Community service, health & lifestyle, music & arts, traffic, sources of energy. Grammar: Conjunctions (although, however, because), past habits (used to + V), -ed/-ing adjectives, future continuous. ${isB2Requested ? "Advanced B2 requested: include higher-tier idioms and collocations." : "Focus on standard communication and school exams."}`;
     } else if (gradeNum === 8) {
       gradePedagogicalDirective = `TARGET: Grade 8 Lower Secondary (B1 Cambridge PET, Age 13-14, THCS).
-Topics: Leisure time & hobbies, life in countryside, environmental protection, disaster prevention. Grammar: Verbs of liking + V-ing/to-V, passive voice, past continuous with when/while, first conditionals with IF/UNLESS, comparative of adverbs.`;
+Level: ${effectiveTargetLevel}. Topics: Leisure time & hobbies, life in countryside, environmental protection, disaster prevention. Grammar: Verbs of liking + V-ing/to-V, passive voice, past continuous with when/while, first conditionals with IF/UNLESS, comparative of adverbs. ${isB2Requested ? "Advanced B2 requested: add Chuyên Anh 10 collocations and transformation structures." : "Focus on standard GDPT B1 curriculum."}`;
     } else {
-      gradePedagogicalDirective = `TARGET: Grade 9 Lower Secondary (B1+/B2, Age 14-15, Ôn thi vào Lớp 10 & Chuyên Anh).
-Topics: City life, local environment, space, world Englishes, teen stress. Grammar: Phrasal verbs, double comparatives (The more... the more...), wh-word + to-inf, wishes, relative clauses, second conditionals, impersonal passive, cleft sentences and entrance exam traps (Thi vào 10).`;
+      gradePedagogicalDirective = `TARGET: Grade 9 Lower Secondary (${isB2Requested ? "B2 Chuyên Anh & HSG - Nâng cao theo yêu cầu" : "B1 Chuẩn GDPT 2018 & Ôn thi vào 10 đại trà"}, Age 14-15).
+Level: ${effectiveTargetLevel}. Topics: City life, local environment, space, world Englishes, teen stress. ${isB2Requested ? "B2 ACTIVATED: Phrasal verbs, double comparatives, cleft sentences, inversion, idioms, entrance exam traps for Specialized Schools (Chuyên Anh)." : "B1 STANDARD: Phrasal verbs, conditionals, wishes, relative clauses, passive voice suited for standard High School Entrance."}`;
     }
 
     const primarySystemPrompt = `You are "Cô Mai Anh AI / Thầy Alex AI" - a dedicated, certified Primary English Master Teacher (Chuyên gia Sư phạm Tiếng Anh Tiểu học GDPT 2018 - Lớp 3, 4, 5).
-Create an engaging, beautifully structured, age-appropriate English lesson specifically for a Primary student named ${studentName} (Grade ${gradeNum}, Age ${gradeNum + 5}, Target Level: ${targetLevel}).
+Create an engaging, beautifully structured, age-appropriate English lesson specifically for a Primary student named ${studentName} (Grade ${gradeNum}, Age ${gradeNum + 5}, Target Level: ${effectiveTargetLevel}).
 
 ${gradePedagogicalDirective}
 
 Topic requested: "${topic || "Chủ đề tiếng Anh Tiểu học Lớp " + gradeNum}"
 ${wordsToExcludeStr}
 
-CRITICAL PEDAGOGICAL CONSTRAINTS FOR PRIMARY (LỚP ${gradeNum} TIỂU HỌC):
-1. TONE & VOCABULARY: Warm, gentle, inspiring, child-friendly with fun emojis. Vocabulary must match GDPT 2018 Primary (Pre-A1 for Grade 3, A1 for Grade 4, A1+ for Grade 5). Short, simple, natural example sentences (5-10 words).
-2. TITLE & OBJECTIVE: Cheerful bilingual title with emojis (e.g. '🎒 Khám Phá: Màu Sắc & Đồ Dùng Học Tập') and 1 clear, friendly learning goal in Vietnamese.
-3. CONCEPT EXPLANATION: Explain in friendly, easy-to-understand Vietnamese using vivid everyday analogies (e.g., đồ chơi, trường lớp, bạn bè), avoiding intimidating technical grammar jargon.
-4. VOCABULARY & PHONICS: 4-5 high-frequency words with IPA, part of speech, Vietnamese meaning, cute emoji, fun bilingual examples, and a memorable phonetic/usage tip (examNote).
-5. GRAMMAR PATTERNS: 2 clear sentence pattern frames (Mẫu câu giao tiếp) with examples and kid-friendly tips ('Mẹo làm bài của Gia sư').
-6. EXERCISES: 4 interactive exercises suited for primary pupils (multiple-choice with relatable context, fill-in-the-blank with word options, sentence unscramble) with correct answers and cheerful explanations in Vietnamese.
-7. TUTOR TIP: A loving, encouraging note praising ${studentName}.
+CRITICAL PEDAGOGICAL & LEVEL CONSTRAINTS FOR PRIMARY (CẤP 1 - LỚP ${gradeNum}):
+1. CEFR LEVEL STRICTLY CONSTRAINED: MUST ONLY BE CEFR A1 (Phù hợp) OR A2 (Nâng cao). ABSOLUTELY FORBIDDEN: B1, B2, C1, inversion, cleft sentences, complex relative clauses, abstract academic vocabulary.
+2. TONE & VOCABULARY: Warm, gentle, inspiring, child-friendly with fun emojis. Short, simple, natural example sentences (5-10 words).
+3. TITLE & OBJECTIVE: Cheerful bilingual title with emojis (e.g. '🎒 Khám Phá: Màu Sắc & Đồ Dùng Học Tập') and 1 clear, friendly learning goal in Vietnamese.
+4. CONCEPT EXPLANATION: Explain in friendly, easy-to-understand Vietnamese using vivid everyday analogies (e.g., đồ chơi, trường lớp, bạn bè), avoiding intimidating technical grammar jargon.
+5. VOCABULARY & PHONICS: 4-5 high-frequency words with IPA, part of speech, Vietnamese meaning, cute emoji, fun bilingual examples, and a memorable phonetic/usage tip (examNote).
+6. GRAMMAR PATTERNS: 2 clear sentence pattern frames (Mẫu câu giao tiếp) with examples and kid-friendly tips ('Mẹo làm bài của Gia sư').
+7. EXERCISES: 4 interactive exercises suited for primary pupils (multiple-choice with relatable context, fill-in-the-blank with word options, sentence unscramble) with correct answers and cheerful explanations in Vietnamese.
+8. TUTOR TIP: A loving, encouraging note praising ${studentName}.
 
 Respond in STRICT JSON format matching this schema:
 {
   "id": "lesson-${Date.now()}",
   "topic": "${topic}",
   "grade": ${gradeNum},
-  "cefrLevel": "${targetLevel}",
+  "cefrLevel": "${effectiveTargetLevel}",
   "title": "Short catchy title with emojis in Vietnamese and English",
   "objectiveVi": "Clear 1-2 sentence learning objective in Vietnamese",
   "conceptExplanation": "Lively, intuitive explanation in Vietnamese with friendly analogies and tips",
@@ -334,17 +363,22 @@ Respond in STRICT JSON format matching this schema:
   ],
   "tutorTip": "Warm encouraging advice from AI Tutor in Vietnamese",
   "createdAt": "${new Date().toISOString()}"
-}`;
+} `;
 
     const secondarySystemPrompt = `You are a distinguished English Master Teacher specializing in the Vietnamese GDPT 2018 secondary curriculum (THCS Lớp 6-9) and entrance exam preparation.
-Create an interactive, comprehensive English lesson tailored for ${studentName} (Grade ${gradeNum}, Target: ${targetLevel}).
+Create an interactive, comprehensive English lesson tailored for ${studentName} (Grade ${gradeNum}, Target: ${effectiveTargetLevel}).
 
 ${gradePedagogicalDirective}
 
 Topic requested: "${topic}"
 ${wordsToExcludeStr}
 
-Provide a structured, pedagogically sound lesson with:
+PEDAGOGICAL DIRECTIVES FOR SECONDARY (CẤP 2 - LỚP ${gradeNum}):
+- Level: ${effectiveTargetLevel}.
+${isB2Requested
+  ? "- B2 LEVEL ACTIVATED: The student explicitly requested advanced B2 level. Incorporate advanced vocabulary, idiomatic expressions, academic collocations, and challenging grammar structures (inversion, cleft sentences, double comparatives) typical of Gifted Student (HSG) and Specialized High School Grade 10 Entrance Exams."
+  : "- APPROPRIATE LEVEL (A2/B1): Do NOT force B2 or over-complicate syntax since B2 was not requested. Keep vocabulary and grammar strictly aligned with GDPT 2018 Lower Secondary standard curriculum (A2 for Grades 6-7, B1 for Grades 8-9)."
+}
 1. Clear, engaging title and learning objective in Vietnamese.
 2. Concept explanation in Vietnamese breaking down the core rules, nuances, and why students often make mistakes.
 3. 4-6 high-yield vocabulary items / collocations / idioms with IPA, part of speech, Vietnamese meaning, natural example sentence in English & Vietnamese, and an exam tip (examNote).
@@ -357,7 +391,7 @@ Respond in STRICT JSON format matching this schema:
   "id": "lesson-${Date.now()}",
   "topic": "${topic}",
   "grade": ${gradeNum},
-  "cefrLevel": "${targetLevel}",
+  "cefrLevel": "${effectiveTargetLevel}",
   "title": "Short catchy title in Vietnamese and English",
   "objectiveVi": "Clear 1-2 sentence learning objective in Vietnamese",
   "conceptExplanation": "In-depth pedagogical explanation in Vietnamese with clear formatting, comparisons, and mnemonic tips",
@@ -393,7 +427,7 @@ Respond in STRICT JSON format matching this schema:
   ],
   "tutorTip": "Inspiring, practical advice from AI Tutor in Vietnamese",
   "createdAt": "${new Date().toISOString()}"
-}`;
+} `;
 
     const systemPrompt = isPrimary ? primarySystemPrompt : secondarySystemPrompt;
 
@@ -411,6 +445,7 @@ Respond in STRICT JSON format matching this schema:
       parsed.id = `lesson-${Date.now()}`;
     }
     parsed.grade = gradeNum;
+    parsed.cefrLevel = effectiveTargetLevel;
     return res.json(parsed);
   } catch (error: any) {
     console.warn("AI Tutor lesson generation using fallback due to:", error?.message || error);
@@ -421,25 +456,38 @@ Respond in STRICT JSON format matching this schema:
 // AI Tutor - Ask tutor questions endpoint
 app.post("/api/ai/tutor-ask", async (req, res) => {
   try {
-    const { question, lessonContext, studentName = "Học sinh" } = req.body;
+    const { question, lessonContext, studentName = "Học sinh", grade = 6 } = req.body;
+    const gradeNum = Number(grade) || 6;
+    const isPrimary = gradeNum <= 5;
     const ai = getGenAI();
 
     if (!ai) {
+      if (isPrimary) {
+        return res.json({
+          answer: `Chào ${studentName}! Thầy/Cô rất vui vì con đã chăm chỉ đặt câu hỏi. Đối với bài học Lớp ${gradeNum}, con hãy nhớ quan sát kỹ mẫu câu và ghi nhớ các từ vựng quen thuộc nhé. Cứ tự tin luyện tập mỗi ngày cùng Thầy/Cô, con sẽ làm bài thật xuất sắc!`,
+          mnemonicTip: "Mẹo nhỏ cho bé: Hãy đọc to câu tiếng Anh lên 3 lần để tai mình quen với âm điệu nhé!",
+        });
+      }
       return res.json({
-        answer: `Chào ${studentName}! Đối với câu hỏi này: Hãy nhớ rằng trong đề thi Chuyên Anh, các cấu trúc đảo ngữ (Inversion) và câu giả định (Subjunctive) luôn yêu cầu chú ý đến mạo từ và thì của mệnh đề chính. Hãy đọc kỹ phần giải thích chi tiết trong bài học nhé!`,
-        mnemonicTip: "Mẹo nhớ: 'No sooner đi với Than - Hardly đi với When'!",
+        answer: `Chào ${studentName}! Đối với câu hỏi này: Em hãy xác định rõ cấu trúc ngữ pháp và dấu hiệu thời gian trong câu. Nếu là dạng bài kiểm tra hoặc thi tuyển sinh, hãy chú ý dạng của động từ và giới từ đi kèm nhé!`,
+        mnemonicTip: "Mẹo nhớ: 'Xác định chủ ngữ trước - chia đúng thì sau'!",
       });
     }
 
-    const prompt = `You are a supportive, expert English Tutor for a Vietnamese student named ${studentName}.
-Current Lesson Context: "${lessonContext || "General English & Specialized 10 Exam Preparation"}"
+    const prompt = `You are a supportive, certified English Tutor for a Vietnamese student named ${studentName} in Grade ${gradeNum} (${isPrimary ? "Cấp 1 Tiểu học (Lớp 3-5, Trình độ A1-A2)" : "Cấp 2 THCS (Lớp 6-9, Trình độ A2-B1, hoặc B2 Chuyên Anh)"}).
+Current Lesson Context: "${lessonContext || (isPrimary ? "Tiểu học GDPT 2018" : "THCS GDPT 2018")}"
 Student's Question: "${question}"
 
-Provide a warm, articulate, and clear answer in Vietnamese (with illustrative English examples).
+Guidelines:
+${isPrimary
+  ? "- Provide a warm, gentle, enthusiastic answer suited for an 8-11 year old child using simple Vietnamese and cheerful examples. Keep explanation simple without intimidating linguistic jargon. Strictly within A1/A2 concepts."
+  : "- Provide an articulate, pedagogically sound answer in Vietnamese with illustrative examples. If the question is about B2 / Chuyên Anh, provide advanced exam tips. Otherwise, keep it clear and aligned with secondary curriculum."
+}
+
 Format your response in strict JSON:
 {
   "answer": "Clear explanation in Vietnamese addressing the student's question directly with 1-2 practical examples",
-  "mnemonicTip": "A memorable tip or trick for exam recall (1 sentence in Vietnamese)"
+  "mnemonicTip": "A memorable tip or trick for recall (1 sentence in Vietnamese)"
 }`;
 
     const response = await generateContentWithFallback(ai, {
@@ -455,9 +503,13 @@ Format your response in strict JSON:
     return res.json(parsed);
   } catch (error: any) {
     console.warn("AI Tutor ask using fallback due to:", error?.message || error);
+    const gradeNum = Number(req.body.grade) || 6;
+    const isPrimary = gradeNum <= 5;
     return res.json({
-      answer: "Thầy/Cô đã nhận được câu hỏi. Khi làm dạng bài này, em hãy luôn xác định trước: Chủ ngữ chính là gì, thì của câu là gì, và có từ mang nghĩa phủ định đứng đầu câu hay không nhé.",
-      mnemonicTip: "Hãy luôn gạch chân từ khóa và dấu hiệu thời gian trước khi chọn đáp án!",
+      answer: isPrimary
+        ? "Thầy/Cô đã nhận được câu hỏi của con rồi. Hãy chú ý đọc kỹ câu hỏi và làm theo mẫu bài học nhé bé ngoan!"
+        : "Thầy/Cô đã nhận được câu hỏi. Khi làm dạng bài này, em hãy luôn xác định trước: Chủ ngữ chính là gì, thì của câu là gì, và có từ khóa quan trọng nào nhé.",
+      mnemonicTip: "Hãy luôn gạch chân từ khóa và dấu hiệu nhận biết trước khi chọn đáp án!",
     });
   }
 });
@@ -468,44 +520,138 @@ app.post("/api/ai/generate-reading", async (req, res) => {
     const {
       topic = "Bảo vệ môi trường",
       grade = 8,
-      targetLevel = "B1+ / B2",
+      targetLevel = "B1 (Chuẩn GDPT 2018)",
       studentName = "Học sinh",
       lengthOption = "standard", // 'short' (50-60 words) or 'standard' (120-150 words)
       wordCountTarget = lengthOption === "short" ? "50-60" : "120-150",
+      isB2Requested: explicitB2Requested,
     } = req.body;
 
+    const gradeNum = Number(grade) || 6;
+    const isPrimary = gradeNum <= 5;
     const isShort = lengthOption === "short" || wordCountTarget === "50-60";
+
+    // Enforce Level Constraints:
+    // Primary: Strictly A1 (Phù hợp) or A2 (Nâng cao)
+    // Secondary: A2 (Lớp 6-7), B1 (Lớp 8-9), and B2 when requested
+    const isB2Requested = !isPrimary && (
+      explicitB2Requested === true ||
+      targetLevel.includes("B2") ||
+      targetLevel.includes("Chuyên")
+    );
+
+    let effectiveTargetLevel = "";
+    if (isPrimary) {
+      const isAdvancedPrimary = targetLevel.includes("A2") || targetLevel.toLowerCase().includes("nâng cao");
+      effectiveTargetLevel = isAdvancedPrimary
+        ? "A2 (Tiểu học Nâng cao / Khảo sát vào 6)"
+        : "A1 (Chuẩn GDPT Tiểu học)";
+    } else {
+      if (isB2Requested) {
+        effectiveTargetLevel = "B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)";
+      } else if (targetLevel.includes("A2") || gradeNum <= 7) {
+        effectiveTargetLevel = "A2 (Chuẩn GDPT 2018 Lớp 6–7 - Phù hợp)";
+      } else {
+        effectiveTargetLevel = "B1 (Chuẩn GDPT 2018 Lớp 8–9 - Phù hợp)";
+      }
+    }
+
     const ai = getGenAI();
 
     if (!ai) {
-      return res.json(getFallbackReadingPassage(topic, Number(grade), targetLevel, isShort ? "short" : "standard"));
+      return res.json(getFallbackReadingPassage(topic, gradeNum, effectiveTargetLevel, isShort ? "short" : "standard"));
     }
 
-    const minWords = isShort ? 50 : 120;
-    const maxWords = isShort ? 60 : 150;
-    const sentenceCount = isShort ? "3-5" : "6-9";
-    const vocabCount = isShort ? "2-3" : "4-6";
-    const grammarCount = isShort ? "1-2" : "2-3";
-    const quizCount = isShort ? "3" : "4-5";
+    // Word counts: For primary, short is 45-60 words, standard is 70-90 words.
+    // For secondary, short is 50-60 words, standard is 120-150 words.
+    const minWords = isPrimary ? (isShort ? 45 : 70) : (isShort ? 50 : 120);
+    const maxWords = isPrimary ? (isShort ? 60 : 90) : (isShort ? 60 : 150);
+    const sentenceCount = isPrimary ? (isShort ? "3-4" : "5-7") : (isShort ? "3-5" : "6-9");
+    const vocabCount = isPrimary ? (isShort ? "2-3" : "3-4") : (isShort ? "2-3" : "4-6");
+    const grammarCount = isPrimary ? "1-2" : (isShort ? "1-2" : "2-3");
+    const quizCount = isPrimary ? (isShort ? "3" : "4") : (isShort ? "3" : "4-5");
 
-    const systemPrompt = `You are a master English curriculum specialist and test creator for Vietnamese students (Vietnam GDPT 2018 curriculum & Specialized 10 B2 Exam preparation).
-Generate an authentic, highly educational reading passage about: "${topic}" for Grade ${grade} (Target Level: ${targetLevel}).
+    const systemPrompt = isPrimary
+      ? `You are a certified Primary English Master Teacher (Chuyên gia Sư phạm Tiếng Anh Tiểu học GDPT 2018 - Lớp 3, 4, 5).
+Generate an authentic, highly educational reading passage about: "${topic}" for a Primary student in Grade ${gradeNum} (Target Level: ${effectiveTargetLevel}).
 
-CRITICAL CONSTRAINTS:
-1. WORD COUNT: The English passage must be STRICTLY BETWEEN ${minWords} AND ${maxWords} WORDS. ${
-      isShort
-        ? "Do not write less than 50 words and do not exceed 60 words! Keep it punchy, age-appropriate, and concise."
-        : "Do not write less than 120 words and do not exceed 150 words."
+CRITICAL PEDAGOGICAL & LEVEL CONSTRAINTS FOR PRIMARY (CẤP 1 - LỚP ${gradeNum}):
+1. CEFR LEVEL STRICTLY CONSTRAINED: MUST ONLY BE CEFR A1 (Phù hợp) OR A2 (Nâng cao).
+   - ABSOLUTELY FORBIDDEN: B1, B2, C1, inversion, cleft sentences, complex relative clauses, passive modals, abstract academic jargon.
+   - Sentences must be short (5-10 words per sentence), simple, and cheerful with high clarity.
+2. WORD COUNT: The English passage must be STRICTLY BETWEEN ${minWords} AND ${maxWords} WORDS.
+3. SENTENCES: Divide into ${sentenceCount} simple sentences with clear Vietnamese translations.
+4. VOCABULARY ANALYSIS: Highlight ${vocabCount} high-yield primary vocabulary items with IPA, part of speech, Vietnamese meaning, and kid-friendly exam tip (examTipVi).
+5. GRAMMAR STRUCTURE: Highlight ${grammarCount} simple sentence pattern (e.g. Present simple, Present continuous, Can/Can't, Simple past visited/saw).
+6. QUIZ: Create ${quizCount} multiple-choice reading comprehension questions with 4 options, correctIndex, friendly explanationVi, and clueSentenceEn.
+
+Return your response in STRICT JSON matching this schema:
+{
+  "id": "reading-${Date.now()}",
+  "titleEn": "Cheerful English Title",
+  "titleVi": "Tiêu đề tiếng Việt gần gũi cho học sinh tiểu học",
+  "topic": "${topic}",
+  "grade": ${gradeNum},
+  "cefrLevel": "${effectiveTargetLevel}",
+  "wordCount": ${isShort ? 52 : 80},
+  "lengthType": "${isShort ? "short" : "standard"}",
+  "contentEn": "Full English passage text of exactly ${minWords}-${maxWords} words...",
+  "contentVi": "Bản dịch tiếng Việt hoàn chỉnh toàn bài...",
+  "sentences": [
+    {
+      "id": "s-1",
+      "en": "First English sentence.",
+      "vi": "Câu tiếng Việt thứ nhất tương ứng."
     }
-2. SENTENCES: Divide the passage into ${sentenceCount} natural sentences. Provide sentence-by-sentence alignment with precise, natural Vietnamese translation for each sentence.
+  ],
+  "vocabAnalysis": [
+    {
+      "word": "targetWord",
+      "ipa": "/.../",
+      "partOfSpeech": "noun / verb / adjective",
+      "meaningVi": "Nghĩa tiếng Việt",
+      "contextSentence": "Sentence containing the word from the text",
+      "collocationOrFamily": "collocation or word family",
+      "examTipVi": "Lưu ý hoặc mẹo nhớ cho bé"
+    }
+  ],
+  "grammarAnalysis": [
+    {
+      "structureName": "Tên cấu trúc",
+      "formula": "Công thức mẫu câu",
+      "extractedExample": "Câu trích xuất từ bài đọc",
+      "explanationVi": "Giải thích chi tiết cấu trúc",
+      "trapOrUsageVi": "Lưu ý làm bài cho bé"
+    }
+  ],
+  "quiz": [
+    {
+      "id": "q-1",
+      "type": "detail",
+      "question": "Question in English",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0,
+      "explanationVi": "Giải thích chi tiết bằng tiếng Việt",
+      "clueSentenceEn": "Clue sentence from passage"
+    }
+  ],
+  "createdAt": "${new Date().toISOString()}"
+}`
+      : `You are a master English curriculum specialist for Vietnamese secondary students (GDPT 2018 Lower Secondary & Grade 10 Exam preparation).
+Generate an authentic, highly educational reading passage about: "${topic}" for Grade ${gradeNum} (Target Level: ${effectiveTargetLevel}).
+
+PEDAGOGICAL & LEVEL DIRECTIVES FOR SECONDARY (CẤP 2 - LỚP ${gradeNum}):
+- Target CEFR: ${effectiveTargetLevel}.
+${isB2Requested
+  ? "- B2 ADVANCED LEVEL ACTIVATED AS REQUESTED: Use high-level academic collocations, idioms, complex sentence structures (cleft sentences, inversion, double comparatives) suitable for Specialized High School Grade 10 Entrance Exams and Gifted Students."
+  : "- STANDARD SECONDARY LEVEL (A2/B1): Aligned with standard GDPT 2018 textbook. Do NOT force B2 or over-complicate syntax since B2 was not requested. Keep vocabulary and grammar accessible."
+}
+1. WORD COUNT: The English passage must be STRICTLY BETWEEN ${minWords} AND ${maxWords} WORDS.
+2. SENTENCES: Divide into ${sentenceCount} natural sentences with sentence-by-sentence Vietnamese translation.
 3. VIETNAMESE TRANSLATION: Provide a complete, fluent, pedagogical Vietnamese translation of the entire passage.
-4. VOCABULARY ANALYSIS: Highlight and analyze ${vocabCount} key vocabulary words/collocations from the passage:
-   - word, ipa, partOfSpeech, meaningVi, contextSentence (the exact sentence from passage), collocationOrFamily, examTipVi.
-5. GRAMMAR STRUCTURE ANALYSIS: Identify and analyze ${grammarCount} prominent grammatical structure(s) found in the passage (e.g. Present simple/continuous for lower grades, or Relative clauses, Conditionals, Inversion, Passive voice for higher grades):
-   - structureName, formula, extractedExample (from passage), explanationVi, trapOrUsageVi.
-6. READING COMPREHENSION QUIZ: Create ${quizCount} multiple-choice questions based strictly on the passage:
-   - Types: 'main-idea', 'detail', 'vocabulary', 'inference', 'grammar'
-   - Each with 4 options, correctIndex (0-3), detailed explanation in Vietnamese (explanationVi), and clueSentenceEn (exact sentence in passage).
+4. VOCABULARY ANALYSIS: Highlight and analyze ${vocabCount} key vocabulary words/collocations from the passage with word, ipa, partOfSpeech, meaningVi, contextSentence, collocationOrFamily, examTipVi.
+5. GRAMMAR STRUCTURE ANALYSIS: Identify and analyze ${grammarCount} prominent grammatical structure(s) from the passage.
+6. READING COMPREHENSION QUIZ: Create ${quizCount} multiple-choice questions based strictly on the passage with 4 options, correctIndex, explanationVi, and clueSentenceEn.
 
 Return your response in STRICT JSON matching this schema:
 {
@@ -513,8 +659,8 @@ Return your response in STRICT JSON matching this schema:
   "titleEn": "Engaging English Title",
   "titleVi": "Tiêu đề tiếng Việt tự nhiên",
   "topic": "${topic}",
-  "grade": ${Number(grade)},
-  "cefrLevel": "${targetLevel}",
+  "grade": ${gradeNum},
+  "cefrLevel": "${effectiveTargetLevel}",
   "wordCount": ${isShort ? 55 : 135},
   "lengthType": "${isShort ? "short" : "standard"}",
   "contentEn": "Full English passage text of exactly ${minWords}-${maxWords} words...",
@@ -573,6 +719,8 @@ Return your response in STRICT JSON matching this schema:
     if (!parsed.id) {
       parsed.id = `reading-${Date.now()}`;
     }
+    parsed.grade = gradeNum;
+    parsed.cefrLevel = effectiveTargetLevel;
     parsed.lengthType = isShort ? "short" : "standard";
     if (parsed.contentEn) {
       parsed.wordCount = parsed.contentEn.trim().split(/\s+/).length;
@@ -1084,9 +1232,213 @@ function getFallbackReadingPassage(
   targetLevel: string = "B1+ / B2",
   lengthOption: "short" | "standard" = "standard"
 ) {
-  const isChuyen = targetLevel.includes("B2") || targetLevel.includes("Chuyên");
+  const gradeNum = Number(grade) || 6;
+  const isPrimary = gradeNum <= 5;
   const isShort = lengthOption === "short";
+  const isChuyen = !isPrimary && (targetLevel.includes("B2") || targetLevel.includes("Chuyên"));
 
+  // 1. PRIMARY SCHOOL FALLBACK (CẤP 1 - LỚP 3, 4, 5): Only A1 (Phù hợp) or A2 (Nâng cao)
+  if (isPrimary) {
+    const isA2Advanced = targetLevel.includes("A2") || targetLevel.toLowerCase().includes("nâng cao");
+    const cefr = isA2Advanced ? "A2 (Tiểu học Nâng cao / Khảo sát vào 6)" : "A1 (Chuẩn GDPT Tiểu học)";
+
+    if (isA2Advanced) {
+      return {
+        id: `reading-${Date.now()}`,
+        titleEn: "A Weekend at the Green Farm",
+        titleVi: "Một Chuyến Đi Cuối Tuần Về Nông Trại Xanh",
+        topic: topic || "Nông trại & Thiên nhiên",
+        grade: gradeNum,
+        cefrLevel: cefr,
+        wordCount: isShort ? 54 : 76,
+        lengthType: lengthOption,
+        contentEn: isShort
+          ? "Last weekend, Tom and his sister visited a lovely green farm in the countryside. They saw many friendly sheep, cows, and chickens. Tom helped feed the animals with fresh grass. His sister picked sweet red apples in the sunny garden. They felt very peaceful and happy after this wonderful trip."
+          : "Last weekend, Tom and his sister visited a lovely green farm in the countryside. The air was fresh and the sky was clear blue. They saw many friendly sheep, cows, and fluffy chickens running on the grass. Tom eagerly helped the farmer feed the animals in the morning. Later, his sister picked sweet red apples in the sunny garden. They ate delicious fresh vegetables for lunch. Both children felt very peaceful, healthy, and happy after this memorable trip.",
+        contentVi: isShort
+          ? "Cuối tuần trước, Tom và em gái đã đến thăm một nông trại xanh đáng yêu ở vùng quê. Các em nhìn thấy rất nhiều chú cừu, bò và gà thân thiện. Tom đã giúp cho các con vật ăn cỏ tươi. Em gái cậu hái những quả táo đỏ ngọt ngào trong khu vườn ngập nắng. Cả hai cảm thấy rất bình yên và hạnh phúc sau chuyến đi tuyệt vời này."
+          : "Cuối tuần trước, Tom và em gái đã đến thăm một nông trại xanh đáng yêu ở vùng quê. Không khí trong lành và bầu trời xanh ngắt. Các em nhìn thấy nhiều chú cừu, bò và gà lông xù chạy trên bãi cỏ. Buổi sáng, Tom háo hức giúp bác nông dân cho các con vật ăn. Sau đó, em gái cậu hái những quả táo đỏ ngọt ngào trong khu vườn ngập nắng. Các em đã ăn rau củ tươi ngon vào bữa trưa. Cả hai bạn nhỏ cảm thấy rất bình yên, khỏe khoắn và vui vẻ sau chuyến đi đáng nhớ này.",
+        sentences: isShort ? [
+          { id: "s-1", en: "Last weekend, Tom and his sister visited a lovely green farm in the countryside.", vi: "Cuối tuần trước, Tom và em gái đã đến thăm một nông trại xanh đáng yêu ở vùng quê." },
+          { id: "s-2", en: "They saw many friendly sheep, cows, and chickens.", vi: "Các em nhìn thấy rất nhiều chú cừu, bò và gà thân thiện." },
+          { id: "s-3", en: "Tom helped feed the animals with fresh grass.", vi: "Tom đã giúp cho các con vật ăn cỏ tươi." },
+          { id: "s-4", en: "His sister picked sweet red apples in the sunny garden.", vi: "Em gái cậu hái những quả táo đỏ ngọt ngào trong khu vườn ngập nắng." },
+          { id: "s-5", en: "They felt very peaceful and happy after this wonderful trip.", vi: "Cả hai cảm thấy rất bình yên và hạnh phúc sau chuyến đi tuyệt vời này." }
+        ] : [
+          { id: "s-1", en: "Last weekend, Tom and his sister visited a lovely green farm in the countryside.", vi: "Cuối tuần trước, Tom và em gái đã đến thăm một nông trại xanh đáng yêu ở vùng quê." },
+          { id: "s-2", en: "The air was fresh and the sky was clear blue.", vi: "Không khí trong lành và bầu trời xanh ngắt." },
+          { id: "s-3", en: "They saw many friendly sheep, cows, and fluffy chickens running on the grass.", vi: "Các em nhìn thấy nhiều chú cừu, bò và gà lông xù chạy trên bãi cỏ." },
+          { id: "s-4", en: "Tom eagerly helped the farmer feed the animals in the morning.", vi: "Buổi sáng, Tom háo hức giúp bác nông dân cho các con vật ăn." },
+          { id: "s-5", en: "Later, his sister picked sweet red apples in the sunny garden.", vi: "Sau đó, em gái cậu hái những quả táo đỏ ngọt ngào trong khu vườn ngập nắng." },
+          { id: "s-6", en: "They ate delicious fresh vegetables for lunch.", vi: "Các em đã ăn rau củ tươi ngon vào bữa trưa." },
+          { id: "s-7", en: "Both children felt very peaceful, healthy, and happy after this memorable trip.", vi: "Cả hai bạn nhỏ cảm thấy rất bình yên, khỏe khoắn và vui vẻ sau chuyến đi đáng nhớ này." }
+        ],
+        vocabAnalysis: [
+          {
+            word: "countryside",
+            ipa: "/ˈkʌn.tri.saɪd/",
+            partOfSpeech: "noun",
+            meaningVi: "vùng quê, nông thôn",
+            contextSentence: "...visited a lovely green farm in the countryside.",
+            collocationOrFamily: "in the countryside",
+            examTipVi: "Từ vựng trọng tâm Lớp 4-5 chủ đề Nơi chốn & Quê hương."
+          },
+          {
+            word: "feed",
+            ipa: "/fiːd/",
+            partOfSpeech: "verb",
+            meaningVi: "cho ăn, bón cho ăn",
+            contextSentence: "Tom helped feed the animals with fresh grass.",
+            collocationOrFamily: "feed the animals (quá khứ là 'fed')",
+            examTipVi: "Động từ bất quy tắc: feed -> fed -> fed."
+          },
+          {
+            word: "peaceful",
+            ipa: "/ˈpiːs.fəl/",
+            partOfSpeech: "adjective",
+            meaningVi: "bình yên, thanh bình",
+            contextSentence: "They felt very peaceful and happy after this wonderful trip.",
+            collocationOrFamily: "peaceful place / feel peaceful",
+            examTipVi: "Hậu tố '-ful' tạo tính từ từ danh từ 'peace' (hòa bình)."
+          }
+        ],
+        grammarAnalysis: [
+          {
+            structureName: "Thì Quá khứ đơn (Past Simple Tense)",
+            formula: "S + V2/ed (visited, saw, helped, picked, felt)",
+            extractedExample: "Tom and his sister visited a lovely green farm in the countryside.",
+            explanationVi: "Dùng để kể lại một chuyến đi hoặc hành động đã kết thúc trong quá khứ.",
+            trapOrUsageVi: "Chú ý động từ 'see' đổi thành 'saw', 'feel' đổi thành 'felt' trong câu quá khứ."
+          }
+        ],
+        quiz: [
+          {
+            id: "q-1",
+            type: "detail",
+            question: "Where did Tom and his sister go last weekend?",
+            options: ["To a green farm in the countryside", "To an amusement park", "To a big supermarket", "To a noisy city street"],
+            correctIndex: 0,
+            explanationVi: "Câu 1 nói rõ Tom và em gái đến thăm một trang trại xanh ở vùng quê (a green farm in the countryside).",
+            clueSentenceEn: "Last weekend, Tom and his sister visited a lovely green farm in the countryside."
+          },
+          {
+            id: "q-2",
+            type: "detail",
+            question: "What did Tom do to help at the farm?",
+            options: ["He fed the animals with fresh grass", "He repaired the tractor", "He bought new clothes", "He watched television all day"],
+            correctIndex: 0,
+            explanationVi: "Tom đã giúp cho các con vật ăn cỏ tươi.",
+            clueSentenceEn: "Tom helped feed the animals with fresh grass."
+          },
+          {
+            id: "q-3",
+            type: "vocabulary",
+            question: "What did Tom's sister pick in the garden?",
+            options: ["Sweet red apples", "Yellow lemons", "Green cucumbers", "Flowers only"],
+            correctIndex: 0,
+            explanationVi: "Em gái Tom đã hái những quả táo đỏ ngọt ngào trong vườn.",
+            clueSentenceEn: "His sister picked sweet red apples in the sunny garden."
+          }
+        ],
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    // Primary A1 (Phù hợp)
+    return {
+      id: `reading-${Date.now()}`,
+      titleEn: "My Happy School Day",
+      titleVi: "Ngày Đi Học Vui Vẻ Của Em",
+      topic: topic || "Trường học & Bạn bè",
+      grade: gradeNum,
+      cefrLevel: cefr,
+      wordCount: isShort ? 50 : 70,
+      lengthType: lengthOption,
+      contentEn: isShort
+        ? "My name is Linh and I am eight years old. Every day, I go to a beautiful primary school near my house. My classroom has big windows and colorful pictures on the wall. I have a kind teacher and three close friends. We love reading English books and playing games together in the school playground."
+        : "My name is Linh and I am eight years old. Every day, I happily go to a beautiful primary school near my house. My classroom has bright windows, tidy wooden desks, and colorful pictures on the wall. My teacher is very kind and smiling. During recess, my best friends and I love reading fun English storybooks and playing tag in the wide playground. School is my favorite place.",
+      contentVi: isShort
+        ? "Tớ tên là Linh và năm nay tớ 8 tuổi. Mỗi ngày, tớ đến một ngôi trường tiểu học xinh đẹp gần nhà. Lớp học của tớ có những khung cửa sổ lớn và những bức tranh nhiều màu sắc trên tường. Tớ có một cô giáo tốt bụng và ba người bạn thân. Chúng tớ thích đọc sách tiếng Anh và chơi trò chơi cùng nhau trên sân trường."
+        : "Tớ tên là Linh và năm nay tớ 8 tuổi. Mỗi ngày, tớ vui vẻ đến ngôi trường tiểu học xinh đẹp gần nhà. Lớp học của tớ có những khung cửa sổ sáng sủa, bàn gỗ ngăn nắp và nhiều bức tranh sặc sỡ trên tường. Cô giáo của tớ rất hiền và luôn mỉm cười. Trong giờ ra chơi, tớ và các bạn thân nhất thích đọc những cuốn truyện tiếng Anh vui nhộn và chơi đuổi bắt trên sân trường rộng rãi. Trường học là nơi tớ yêu thích nhất.",
+      sentences: [
+        { id: "s-1", en: "My name is Linh and I am eight years old.", vi: "Tớ tên là Linh và năm nay tớ 8 tuổi." },
+        { id: "s-2", en: "Every day, I go to a beautiful primary school near my house.", vi: "Mỗi ngày, tớ đến một ngôi trường tiểu học xinh đẹp gần nhà." },
+        { id: "s-3", en: "My classroom has big windows and colorful pictures on the wall.", vi: "Lớp học của tớ có những khung cửa sổ lớn và những bức tranh nhiều màu sắc trên tường." },
+        { id: "s-4", en: "I have a kind teacher and three close friends.", vi: "Tớ có một cô giáo tốt bụng và ba người bạn thân." },
+        { id: "s-5", en: "We love reading English books and playing games together in the school playground.", vi: "Chúng tớ thích đọc sách tiếng Anh và chơi trò chơi cùng nhau trên sân trường." }
+      ],
+      vocabAnalysis: [
+        {
+          word: "primary school",
+          ipa: "/ˈpraɪ.mə.ri skuːl/",
+          partOfSpeech: "noun",
+          meaningVi: "trường tiểu học (cấp 1)",
+          contextSentence: "I go to a beautiful primary school near my house.",
+          collocationOrFamily: "go to primary school",
+          examTipVi: "Từ vựng cốt lõi Lớp 3 Tiểu học."
+        },
+        {
+          word: "playground",
+          ipa: "/ˈpleɪ.ɡraʊnd/",
+          partOfSpeech: "noun",
+          meaningVi: "sân chơi, sân trường",
+          contextSentence: "...playing games together in the school playground.",
+          collocationOrFamily: "in the playground",
+          examTipVi: "Ghép từ: play (chơi) + ground (mặt đất, bãi đất)."
+        },
+        {
+          word: "colorful",
+          ipa: "/ˈkʌl.ə.fəl/",
+          partOfSpeech: "adjective",
+          meaningVi: "nhiều màu sắc, rực rỡ",
+          contextSentence: "My classroom has big windows and colorful pictures...",
+          collocationOrFamily: "colorful pictures / colorful flowers",
+          examTipVi: "Tính từ miêu tả đồ vật rất hay gặp trong bài kiểm tra lớp 3-4."
+        }
+      ],
+      grammarAnalysis: [
+        {
+          structureName: "Thì Hiện tại đơn với Động từ thường & Like/Love + V-ing",
+          formula: "S + love(s) + V-ing / Noun",
+          extractedExample: "We love reading English books and playing games together.",
+          explanationVi: "Diễn tả sở thích của bản thân và bạn bè.",
+          trapOrUsageVi: "Sau động từ chỉ sở thích như like, love thì động từ sau thêm đuôi -ing (reading, playing)."
+        }
+      ],
+      quiz: [
+        {
+          id: "q-1",
+          type: "detail",
+          question: "How old is Linh?",
+          options: ["Eight years old", "Ten years old", "Six years old", "Twelve years old"],
+          correctIndex: 0,
+          explanationVi: "Linh giới thiệu rõ: 'I am eight years old' (Tớ 8 tuổi).",
+          clueSentenceEn: "My name is Linh and I am eight years old."
+        },
+        {
+          id: "q-2",
+          type: "detail",
+          question: "Where do Linh and her friends play games together?",
+          options: ["In the school playground", "At the cinema", "In the hospital", "At the bus station"],
+          correctIndex: 0,
+          explanationVi: "Các bạn chơi cùng nhau ở sân trường (school playground).",
+          clueSentenceEn: "We love reading English books and playing games together in the school playground."
+        },
+        {
+          id: "q-3",
+          type: "detail",
+          question: "What does Linh's classroom have on the wall?",
+          options: ["Colorful pictures", "Old clocks", "Big maps only", "Black boards only"],
+          correctIndex: 0,
+          explanationVi: "Lớp học có những bức tranh nhiều màu sắc trên tường (colorful pictures on the wall).",
+          clueSentenceEn: "My classroom has big windows and colorful pictures on the wall."
+        }
+      ],
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  // 2. SECONDARY SCHOOL FALLBACK (CẤP 2 - LỚP 6, 7, 8, 9)
   if (isShort) {
     // 50-60 words short passage
     return {
@@ -1095,7 +1447,7 @@ function getFallbackReadingPassage(
       titleVi: "Thói Quen Xanh Tại Trường Học",
       topic: topic || "Môi trường & Sinh thái",
       grade: Number(grade) || 6,
-      cefrLevel: grade <= 5 ? "A1" : "A2",
+      cefrLevel: gradeNum <= 7 ? "A2 (Chuẩn GDPT Lớp 6–7)" : "B1 (Chuẩn GDPT Lớp 8–9)",
       wordCount: 56,
       lengthType: "short",
       contentEn: "Every morning, students at Green Hill School walk or ride bicycles to their classrooms. Inside the building, they place empty plastic bottles and paper into designated recycling bins. The friendly teachers always remind children to turn off ceiling fans before leaving. By practicing these simple green habits, young pupils help keep their school clean and beautiful.",

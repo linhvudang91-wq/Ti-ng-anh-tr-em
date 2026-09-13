@@ -400,6 +400,7 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
 
     try {
       const learnedPool = getLearnedVocabularyPool();
+      const isB2 = !isKid && targetLevel.includes('B2');
       const response = await fetch('/api/ai/tutor-generate-lesson', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -409,6 +410,7 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
           targetLevel,
           studentName: user.name,
           excludeWords: learnedPool,
+          isB2Requested: isB2,
         }),
       });
 
@@ -1564,17 +1566,14 @@ Hãy chọn tính năng ở trên hoặc nhập câu hỏi bên dưới nhé!`,
                 >
                   {isKid ? (
                     <>
-                      <option value="Pre-A1 (Nền tảng Lớp 3 - Starters)">🌱 Pre-A1 (Nền tảng Lớp 3 - Cambridge Starters)</option>
-                      <option value="A1 (Chuẩn GDPT Lớp 4-5 - Movers)">🎒 A1 (Chuẩn GDPT Lớp 4-5 - Cambridge Movers)</option>
-                      <option value="A1+ (Tiểu học nâng cao - Flyers)">⭐ A1+ (Khảo sát vào Lớp 6 CLC - Cambridge Flyers)</option>
-                      <option value="A2- (Thi IOE & Học sinh giỏi Tiểu học)">🏆 A2- (Bồi dưỡng IOE & Violympic Cấp 1)</option>
+                      <option value="A1 (Chuẩn GDPT Tiểu học - Phù hợp)">🎒 A1 (Chuẩn GDPT Tiểu học - Phù hợp)</option>
+                      <option value="A2 (Tiểu học Nâng cao / Khảo sát vào 6)">🏆 A2 (Tiểu học Nâng cao / Khảo sát vào Lớp 6 CLC)</option>
                     </>
                   ) : (
                     <>
-                      <option value="A2+ (Nâng cao Lớp 6-7)">🌱 A2+ (Chuẩn GDPT 2018 Lớp 6-7 & KET)</option>
-                      <option value="B1 (Chuẩn GDPT Lớp 8 - PET)">📘 B1 (Chuẩn GDPT Lớp 8 & Cambridge PET)</option>
-                      <option value="B1+ (Học sinh Giỏi Cấp Huyện/Tỉnh)">⭐ B1+ (Bồi dưỡng Học sinh Giỏi Lớp 7-8)</option>
-                      <option value="B2 (Chuyên Anh 10)">🏆 B2 (Luyện thi vào Lớp 10 Chuyên Anh)</option>
+                      <option value="A2 (Chuẩn GDPT Lớp 6–7 - Phù hợp)">🌱 A2 (Chuẩn GDPT 2018 Lớp 6–7 - Phù hợp)</option>
+                      <option value="B1 (Chuẩn GDPT Lớp 8–9 - Phù hợp)">📘 B1 (Chuẩn GDPT 2018 Lớp 8–9 - Phù hợp)</option>
+                      <option value="B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)">🏆 B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)</option>
                     </>
                   )}
                 </select>

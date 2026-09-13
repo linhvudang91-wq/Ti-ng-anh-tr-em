@@ -53,9 +53,18 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
   const [selectedTopic, setSelectedTopic] = useState<string>(initialTopic || 'Môi trường & Sinh thái');
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [selectedGrade, setSelectedGrade] = useState<GradeLevel>(currentGrade || 8);
-  const [targetLevel, setTargetLevel] = useState<string>(
-    userProfile?.target === 'chuyen-b2' ? 'B2 (Chuyên Anh 10)' : 'B1 (GDPT 2018)'
-  );
+  const [targetLevel, setTargetLevel] = useState<string>(() => {
+    const g = currentGrade || 8;
+    if (g <= 5) {
+      return 'A1 (Chuẩn GDPT Tiểu học - Phù hợp)';
+    }
+    if (g <= 7) {
+      return 'A2 (Chuẩn GDPT Lớp 6–7 - Phù hợp)';
+    }
+    return userProfile?.target === 'chuyen-b2'
+      ? 'B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)'
+      : 'B1 (Chuẩn GDPT Lớp 8–9 - Phù hợp)';
+  });
   
   // Length selection: 'short' (50-60 words) or 'standard' (120-150 words)
   const [readingLength, setReadingLength] = useState<ReadingLengthType>(() => {
@@ -159,6 +168,7 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
         setLoadingStep('Đang tối ưu kết nối và hoàn thiện câu hỏi đọc hiểu...');
       }, 3500);
 
+      const isPrimary = selectedGrade <= 5;
       const res = await fetch('/api/ai/generate-reading', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -169,6 +179,7 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
           studentName: userProfile?.name || 'Học sinh',
           lengthOption: readingLength,
           wordCountTarget: targetWords,
+          isB2Requested: !isPrimary && targetLevel.includes('B2'),
         }),
       });
 
@@ -361,27 +372,43 @@ export const AiReadingModule: React.FC<AiReadingModuleProps> = ({
                   setSelectedGrade(g);
                   if (g <= 5) {
                     setReadingLength('short');
+                    setTargetLevel('A1 (Chuẩn GDPT Tiểu học - Phù hợp)');
+                  } else if (g <= 7) {
+                    setTargetLevel('A2 (Chuẩn GDPT Lớp 6–7 - Phù hợp)');
+                  } else {
+                    setTargetLevel(userProfile?.target === 'chuyen-b2' ? 'B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)' : 'B1 (Chuẩn GDPT Lớp 8–9 - Phù hợp)');
                   }
                 }}
                 className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
               >
                 {[3, 4, 5, 6, 7, 8, 9].map(g => (
-                  <option key={g} value={g}>Lớp {g}</option>
+                  <option key={g} value={g}>
+                    Lớp {g} ({g <= 5 ? 'Cấp 1' : 'Cấp 2'})
+                  </option>
                 ))}
               </select>
             </div>
 
             {/* Target Tier */}
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
-              <span className="text-xs font-semibold text-slate-600">Mục tiêu:</span>
+              <span className="text-xs font-semibold text-slate-600">Trình độ:</span>
               <select
                 value={targetLevel}
                 onChange={(e) => setTargetLevel(e.target.value)}
                 className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
               >
-                <option value="A2 (GDPT 2018)">A2 (Cơ bản GDPT)</option>
-                <option value="B1 (Nâng cao)">B1 (Nâng cao)</option>
-                <option value="B2 (Chuyên Anh 10)">B2 (Chuyên Anh vào 10)</option>
+                {selectedGrade <= 5 ? (
+                  <>
+                    <option value="A1 (Chuẩn GDPT Tiểu học - Phù hợp)">A1 (Chuẩn GDPT Tiểu học - Phù hợp)</option>
+                    <option value="A2 (Tiểu học Nâng cao / Khảo sát vào 6)">A2 (Tiểu học Nâng cao / Khảo sát vào 6)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="A2 (Chuẩn GDPT Lớp 6–7 - Phù hợp)">A2 (Chuẩn GDPT Lớp 6–7 - Phù hợp)</option>
+                    <option value="B1 (Chuẩn GDPT Lớp 8–9 - Phù hợp)">B1 (Chuẩn GDPT Lớp 8–9 - Phù hợp)</option>
+                    <option value="B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)">B2 (Chuyên Anh 10 & HSG - Nâng cao theo yêu cầu)</option>
+                  </>
+                )}
               </select>
             </div>
 
