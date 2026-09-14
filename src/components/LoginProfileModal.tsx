@@ -31,6 +31,8 @@ export const LoginProfileModal: React.FC<LoginProfileModalProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
   const [deleteMode, setDeleteMode] = useState<boolean>(false);
+  const [deletePin, setDeletePin] = useState<string>('');
+  const [deletePinError, setDeletePinError] = useState<string>('');
 
   if (!isOpen) return null;
 
@@ -58,14 +60,22 @@ export const LoginProfileModal: React.FC<LoginProfileModalProps> = ({
   const requestDelete = (e: React.MouseEvent, user: UserProfile) => {
     e.stopPropagation();
     setUserToDelete(user);
+    setDeletePin('');
+    setDeletePinError('');
   };
 
   const confirmDelete = () => {
     if (!userToDelete) return;
+    if (deletePin.trim() !== '1111') {
+      setDeletePinError('Mã xóa không đúng. Vui lòng nhập đúng mã xác nhận là 1111.');
+      return;
+    }
     const deletedId = userToDelete.id;
     const remaining = deleteUserProfile(deletedId);
     setUsers(remaining);
     setUserToDelete(null);
+    setDeletePin('');
+    setDeletePinError('');
 
     // If active user was deleted, switch to the remaining active user
     if (activeUser.id === deletedId) {
@@ -127,7 +137,7 @@ export const LoginProfileModal: React.FC<LoginProfileModalProps> = ({
                 <div className="w-10 h-10 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shrink-0">
                   <AlertTriangle className="w-5 h-5" />
                 </div>
-                <div>
+                <div className="flex-1">
                   <h4 className="font-bold text-sm text-red-950">
                     Xác nhận xóa người học: {userToDelete.avatar} {userToDelete.name}?
                   </h4>
@@ -137,13 +147,47 @@ export const LoginProfileModal: React.FC<LoginProfileModalProps> = ({
                     <strong>{userToDelete.progress?.savedNotebookWords?.length || 0} từ vựng</strong>.
                     Toàn bộ dữ liệu của người học này sẽ được xóa vĩnh viễn.
                   </p>
+
+                  <div className="mt-3 p-3 bg-white rounded-xl border border-red-200 shadow-2xs space-y-2">
+                    <label className="block text-xs font-bold text-slate-800">
+                      🔒 Nhập mã xác nhận để xóa (Mã xóa: <span className="font-mono text-red-600 font-extrabold text-sm">1111</span>):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="input-delete-user-pin-modal"
+                        type="text"
+                        maxLength={10}
+                        value={deletePin}
+                        onChange={(e) => {
+                          setDeletePin(e.target.value);
+                          if (deletePinError) setDeletePinError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') confirmDelete();
+                        }}
+                        placeholder="Nhập 1111"
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-mono tracking-widest text-slate-900 focus:outline-hidden focus:border-red-500 focus:ring-1 focus:ring-red-500 w-36 bg-slate-50"
+                        autoFocus
+                      />
+                      <span className="text-[11px] text-slate-500 font-medium">Mã bảo vệ: <strong>1111</strong></span>
+                    </div>
+                    {deletePinError && (
+                      <p className="text-xs font-bold text-red-600 flex items-center gap-1 mt-1">
+                        ⚠️ {deletePinError}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-red-200/60">
                 <button
                   type="button"
-                  onClick={() => setUserToDelete(null)}
+                  onClick={() => {
+                    setUserToDelete(null);
+                    setDeletePin('');
+                    setDeletePinError('');
+                  }}
                   className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
                 >
                   Giữ lại

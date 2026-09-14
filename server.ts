@@ -36,15 +36,18 @@ const FALLBACK_MODELS = [
 
 function cleanJsonText(rawText: string): string {
   let cleaned = (rawText || "").trim();
-  if (cleaned.startsWith("```json")) {
-    cleaned = cleaned.substring(7);
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.substring(3);
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  const firstBracket = cleaned.indexOf("[");
+  const lastBracket = cleaned.lastIndexOf("]");
+  
+  if (firstBrace !== -1 && lastBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    return cleaned.substring(firstBrace, lastBrace + 1);
+  } else if (firstBracket !== -1 && lastBracket !== -1) {
+    return cleaned.substring(firstBracket, lastBracket + 1);
   }
-  if (cleaned.endsWith("```")) {
-    cleaned = cleaned.substring(0, cleaned.length - 3);
-  }
-  return cleaned.trim();
+  
+  return cleaned;
 }
 
 interface GenerateOptions {
@@ -57,6 +60,66 @@ async function generateContentWithFallback(
   ai: GoogleGenAI,
   options: GenerateOptions
 ): Promise<any> {
+  const nvidiaApiKey = process.env.NVIDIA_API_KEY || "";
+  
+  if (nvidiaApiKey.startsWith("nvapi-")) {
+    try {
+      const openAiMessages = [];
+      let sysText = "";
+      if (options.config?.systemInstruction) {
+         sysText = typeof options.config.systemInstruction === 'string' 
+            ? options.config.systemInstruction 
+            : (options.config.systemInstruction?.parts?.[0]?.text || "");
+         openAiMessages.push({ role: 'system', content: sysText });
+      }
+      
+      let contents = Array.isArray(options.contents) ? options.contents : [options.contents];
+      for (const c of contents) {
+         let role = 'user';
+         if (c.role === 'model') role = 'assistant';
+         else if (c.role === 'system') role = 'system';
+         
+         let text = '';
+         if (typeof c === 'string') text = c;
+         else if (Array.isArray(c.parts)) text = c.parts.map((p: any) => p.text).join('\n');
+         else if (c.parts?.text) text = c.parts.text;
+         
+         if (text) openAiMessages.push({ role, content: text });
+      }
+
+      // We explicitly prompt for JSON in case response_format is partially supported
+      const isJson = options.config?.responseMimeType === 'application/json';
+      if (isJson) {
+         openAiMessages.push({ role: 'system', content: 'You must output strictly valid JSON.' });
+      }
+
+      const reqBody: any = {
+         model: "nvidia/llama-3.1-nemotron-70b-instruct", // Updated to a valid NVIDIA hosted model
+         messages: openAiMessages,
+         temperature: options.config?.temperature ?? 0.7,
+      };
+
+      const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${nvidiaApiKey}`
+        },
+        body: JSON.stringify(reqBody)
+      });
+
+      if (!res.ok) {
+         const errText = await res.text();
+         throw new Error(`NVIDIA API Error: ${res.status} - ${errText}`);
+      }
+      const data = await res.json();
+      return { text: data.choices[0].message.content };
+    } catch (e) {
+      console.warn("NVIDIA generation failed, falling back to Gemini:", (e as any).message);
+      // Fall through to use Gemini
+    }
+  }
+
   const models = Array.from(new Set(FALLBACK_MODELS));
   let lastError: any = null;
 
@@ -304,89 +367,103 @@ Level: ${effectiveTargetLevel}. Topics: Leisure time & hobbies, life in countrys
 Level: ${effectiveTargetLevel}. Topics: City life, local environment, space, world Englishes, teen stress. ${isB2Requested ? "B2 ACTIVATED: Phrasal verbs, double comparatives, cleft sentences, inversion, idioms, entrance exam traps for Specialized Schools (Chuyên Anh)." : "B1 STANDARD: Phrasal verbs, conditionals, wishes, relative clauses, passive voice suited for standard High School Entrance."}`;
     }
 
-    const primarySystemPrompt = `You are "Cô Mai Anh AI / Thầy Alex AI" - a dedicated, certified Primary English Master Teacher (Chuyên gia Sư phạm Tiếng Anh Tiểu học GDPT 2018 - Lớp 3, 4, 5).
-Create an engaging, beautifully structured, age-appropriate English lesson specifically for a Primary student named ${studentName} (Grade ${gradeNum}, Age ${gradeNum + 5}, Target Level: ${effectiveTargetLevel}).
+    const primarySystemPrompt = `You are "Cô Mai Anh AI / Thầy Alex AI" - a dedicated Primary English Master Teacher (Chuyên gia Sư phạm Tiếng Anh Tiểu học GDPT 2018 - Lớp 3, 4, 5).
+Create an engaging, beautifully chunked, bite-sized English lesson specifically for a Primary student named ${studentName} (Grade ${gradeNum}, Target Level: ${effectiveTargetLevel}).
 
 ${gradePedagogicalDirective}
 
 Topic requested: "${topic || "Chủ đề tiếng Anh Tiểu học Lớp " + gradeNum}"
 ${wordsToExcludeStr}
 
-CRITICAL PEDAGOGICAL & LEVEL CONSTRAINTS FOR PRIMARY (CẤP 1 - LỚP ${gradeNum}):
-1. CEFR LEVEL STRICTLY CONSTRAINED: MUST ONLY BE CEFR A1 (Phù hợp) OR A2 (Nâng cao). ABSOLUTELY FORBIDDEN: B1, B2, C1, inversion, cleft sentences, complex relative clauses, abstract academic vocabulary.
-2. TONE & VOCABULARY: Warm, gentle, inspiring, child-friendly with fun emojis. Short, simple, natural example sentences (5-10 words).
-3. TITLE & OBJECTIVE: Cheerful bilingual title with emojis (e.g. '🎒 Khám Phá: Màu Sắc & Đồ Dùng Học Tập') and 1 clear, friendly learning goal in Vietnamese.
-4. CONCEPT EXPLANATION: Explain in friendly, easy-to-understand Vietnamese using vivid everyday analogies (e.g., đồ chơi, trường lớp, bạn bè), avoiding intimidating technical grammar jargon.
-5. VOCABULARY & PHONICS: 4-5 high-frequency words with IPA, part of speech, Vietnamese meaning, cute emoji, fun bilingual examples, and a memorable phonetic/usage tip (examNote).
-6. GRAMMAR PATTERNS: 2 clear sentence pattern frames (Mẫu câu giao tiếp) with examples and kid-friendly tips ('Mẹo làm bài của Gia sư').
-7. EXERCISES: 4 interactive exercises suited for primary pupils (multiple-choice with relatable context, fill-in-the-blank with word options, sentence unscramble) with correct answers and cheerful explanations in Vietnamese.
-8. TUTOR TIP: A loving, encouraging note praising ${studentName}.
+CRITICAL PEDAGOGICAL CONSTRAINTS (TỐI ƯU BÀI HỌC CẤP 1 - TIỂU HỌC):
+1. CEFR LEVEL: Strictly A1 (Chuẩn GDPT Tiểu học) or A2 (Tiểu học nâng cao). NO complex grammar jargon.
+2. CÁC BƯỚC HỌC NGẮN GỌN & DỄ TIẾP CẬN: Chia bài học thành 5 bước ngắn gọn, rõ ràng trong mảng "steps" (Bước 1: Mục tiêu, Bước 2: Từ vựng, Bước 3: Mẫu câu cơ bản, Bước 4: Ví dụ thực tế, Bước 5: Luyện tập nhanh).
+3. TĂNG LƯỢNG TỪ VỰNG: Cung cấp ĐỦ 8 ĐẾN 10 TỪ VỰNG thiết thực, quen thuộc trong "vocabAndCollocations". Mỗi từ có phiên âm IPA, loại từ, nghĩa tiếng Việt, 2 CÂU VÍ DỤ minh họa rõ ràng (exampleEn/Vi và additionalExampleEn/Vi), kèm mẹo nhớ sinh động.
+4. GIẢM NGỮ PHÁP XUỐNG MỨC CƠ BẢN: Trong "grammarStructures", CHỈ ĐƯA RA 1 MẪU CÂU CƠ BẢN NHẤT (hoặc tối đa 2 mẫu câu đơn giản như 'What is this?', 'I like...'). Công thức ngắn gọn, trực quan, dễ nhớ. KHÔNG giải thích ngữ pháp học thuật dài dòng hay bẫy phức tạp.
+5. TĂNG NHIỀU VÍ DỤ THỰC TẾ: Cung cấp ít nhất 4-5 ví dụ giao tiếp thực tế hoặc đoạn đối thoại ngắn trong "realLifeExamples" kèm dịch tiếng Việt để bé dễ hình dung.
+6. BÀI TẬP TƯƠNG TÁC NHANH: 4 bài tập trắc nghiệm ngắn gọn, đáng yêu, giải thích khích lệ.
 
-Respond in STRICT JSON format matching this schema:
+Respond in STRICT JSON format:
 {
   "id": "lesson-${Date.now()}",
   "topic": "${topic}",
   "grade": ${gradeNum},
   "cefrLevel": "${effectiveTargetLevel}",
-  "title": "Short catchy title with emojis in Vietnamese and English",
+  "title": "Short catchy bilingual title with emojis",
   "objectiveVi": "Clear 1-2 sentence learning objective in Vietnamese",
-  "conceptExplanation": "Lively, intuitive explanation in Vietnamese with friendly analogies and tips",
+  "conceptExplanation": "Short, friendly 2-3 sentence concept analogy in Vietnamese with cute emojis",
+  "steps": [
+    { "stepNumber": 1, "title": "Khởi động & Mục tiêu", "description": "Mục tiêu bài học ngắn gọn", "keyTakeaway": "Điểm cần nhớ" },
+    { "stepNumber": 2, "title": "Kho từ vựng trọng tâm", "description": "8-10 từ vựng gần gũi", "keyTakeaway": "Phát âm chuẩn và nhớ nghĩa" },
+    { "stepNumber": 3, "title": "Mẫu câu cơ bản", "description": "Mẫu câu giao tiếp ngắn gọn, dễ thuộc", "keyTakeaway": "Áp dụng ngay khi nói" },
+    { "stepNumber": 4, "title": "Ví dụ thực tế sinh động", "description": "Nhiều ví dụ và hội thoại minh họa", "keyTakeaway": "Học qua ngữ cảnh thực tế" },
+    { "stepNumber": 5, "title": "Luyện tập tương tác", "description": "4 câu trắc nghiệm nhanh", "keyTakeaway": "Ôn luyện nhận điểm thưởng" }
+  ],
   "vocabAndCollocations": [
     {
       "word": "word",
       "ipa": "/.../",
       "partOfSpeech": "noun / verb / adj",
-      "meaningVi": "Vietnamese meaning",
-      "exampleEn": "Simple natural sentence",
-      "exampleVi": "Bản dịch tiếng Việt",
-      "examNote": "Mẹo nhớ từ hoặc lưu ý phát âm cho bé"
+      "meaningVi": "Nghĩa tiếng Việt",
+      "exampleEn": "Ví dụ câu 1",
+      "exampleVi": "Dịch câu 1",
+      "additionalExampleEn": "Ví dụ câu 2 thêm ngữ cảnh",
+      "additionalExampleVi": "Dịch câu 2",
+      "examNote": "Mẹo nhớ từ hoặc phát âm cho bé"
     }
   ],
   "grammarStructures": [
     {
       "name": "Mẫu câu quen thuộc",
-      "formula": "Sentence pattern",
-      "exampleEn": "Example in English",
-      "exampleVi": "Example in Vietnamese",
-      "examTrapVi": "Lưu ý làm bài hoặc mẹo nhớ"
+      "formula": "Công thức ngắn gọn",
+      "exampleEn": "Ví dụ mẫu",
+      "exampleVi": "Dịch tiếng Việt",
+      "examTrapVi": "Mẹo nhớ nhanh",
+      "moreExamples": [
+        { "en": "Ví dụ bổ sung 1", "vi": "Dịch ví dụ 1" },
+        { "en": "Ví dụ bổ sung 2", "vi": "Dịch ví dụ 2" }
+      ]
+    }
+  ],
+  "realLifeExamples": [
+    {
+      "context": "Trong lớp học / Ở nhà / Khi gặp bạn",
+      "dialogueOrSentenceEn": "A: Hello, how are you? - B: I am fine, thank you!",
+      "translationVi": "A: Xin chào, bạn khỏe không? - B: Mình khỏe, cảm ơn bạn!",
+      "explanation": "Tình huống giao tiếp hàng ngày"
     }
   ],
   "interactiveExercises": [
     {
       "id": "ex-1",
       "type": "multiple-choice",
-      "question": "Question text suitable for primary students",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswer": "Exact correct string or option",
-      "explanationVi": "Lời giải thích dễ hiểu, khen ngợi bé"
+      "question": "Câu hỏi ngắn gọn",
+      "options": ["A", "B", "C", "D"],
+      "correctAnswer": "Exact correct string",
+      "explanationVi": "Lời khen ngợi và giải thích dễ hiểu"
     }
   ],
-  "tutorTip": "Warm encouraging advice from AI Tutor in Vietnamese",
+  "tutorTip": "Lời nhắn ấm áp, động viên bé",
   "createdAt": "${new Date().toISOString()}"
-} `;
+}`;
 
-    const secondarySystemPrompt = `You are a distinguished English Master Teacher specializing in the Vietnamese GDPT 2018 secondary curriculum (THCS Lớp 6-9) and entrance exam preparation.
-Create an interactive, comprehensive English lesson tailored for ${studentName} (Grade ${gradeNum}, Target: ${effectiveTargetLevel}).
+    const secondarySystemPrompt = `You are an expert English Master Teacher specializing in the Vietnamese GDPT 2018 Secondary curriculum (THCS Lớp 6-9).
+Create an optimized, bite-sized English lesson specifically for a Secondary student named ${studentName} (Grade ${gradeNum}, Target Level: ${effectiveTargetLevel}).
 
 ${gradePedagogicalDirective}
 
 Topic requested: "${topic}"
 ${wordsToExcludeStr}
 
-PEDAGOGICAL DIRECTIVES FOR SECONDARY (CẤP 2 - LỚP ${gradeNum}):
-- Level: ${effectiveTargetLevel}.
-${isB2Requested
-  ? "- B2 LEVEL ACTIVATED: The student explicitly requested advanced B2 level. Incorporate advanced vocabulary, idiomatic expressions, academic collocations, and challenging grammar structures (inversion, cleft sentences, double comparatives) typical of Gifted Student (HSG) and Specialized High School Grade 10 Entrance Exams."
-  : "- APPROPRIATE LEVEL (A2/B1): Do NOT force B2 or over-complicate syntax since B2 was not requested. Keep vocabulary and grammar strictly aligned with GDPT 2018 Lower Secondary standard curriculum (A2 for Grades 6-7, B1 for Grades 8-9)."
-}
-1. Clear, engaging title and learning objective in Vietnamese.
-2. Concept explanation in Vietnamese breaking down the core rules, nuances, and why students often make mistakes.
-3. 4-6 high-yield vocabulary items / collocations / idioms with IPA, part of speech, Vietnamese meaning, natural example sentence in English & Vietnamese, and an exam tip (examNote).
-4. 2-3 grammar structures / formulas with example sentences, and crucial "Lưu ý bài thi" (Phù hợp chính xác với khối Lớp ${gradeNum}).
-5. 4 interactive practice exercises (combination of multiple-choice, word-formation, or sentence-transformation) with correct answers and detailed Vietnamese explanations.
-6. A motivating tutor tip for ${studentName}.
+CRITICAL PEDAGOGICAL CONSTRAINTS (TỐI ƯU BÀI HỌC CẤP 2 - THCS):
+1. CEFR LEVEL: Strictly A2 (Phù hợp Lớp 6-7, giao tiếp nền tảng) or B1 (Phù hợp Lớp 8-9, chuẩn GDPT & thi vào 10). ${isB2Requested ? "B2 requested: enhance vocabulary." : "DO NOT overcomplicate with esoteric grammatical traps."}
+2. CÁC BƯỚC HỌC NGẮN GỌN & DỄ TIẾP CẬN: Chia bài học thành 5 bước ngắn gọn trong "steps" (Bước 1: Mục tiêu trọng tâm, Bước 2: 8-10 Từ vựng & Collocations, Bước 3: Mẫu câu cơ bản thực dụng, Bước 4: Nhiều ví dụ giao tiếp thực tế, Bước 5: Luyện tập nhanh).
+3. TĂNG LƯỢNG TỪ VỰNG: Cung cấp ĐỦ 8 ĐẾN 10 TỪ VỰNG / cụm từ thiết thực trong "vocabAndCollocations". Mỗi từ có phiên âm IPA, loại từ, nghĩa tiếng Việt, 2 CÂU VÍ DỤ MINH HỌA rõ ràng (exampleEn/Vi và additionalExampleEn/Vi), kèm mẹo làm bài thi/cách dùng.
+4. GIẢM NGỮ PHÁP XUỐNG MỨC CƠ BẢN: Trong "grammarStructures", CHỈ TẬP TRUNG 1 ĐẾN 2 MẪU CÂU CƠ BẢN NHẤT. Cấu trúc rõ ràng, tập trung vào cách dùng thực tế, lược bỏ các biến thể phức tạp hiếm gặp để học sinh dễ nắm bắt và ứng dụng ngay.
+5. TĂNG NHIỀU VÍ DỤ MINH HỌA: Cung cấp ít nhất 4-6 ví dụ thực tế hoặc mini dialogues trong "realLifeExamples" kèm dịch tiếng Việt để người học thấy rõ cách vận dụng trong đời sống và bài thi.
+6. BÀI TẬP TƯƠNG TÁC NHANH: 4 bài tập thực hành trắc nghiệm có đáp án chính xác và lời giải thích súc tích.
 
-Respond in STRICT JSON format matching this schema:
+Respond in STRICT JSON format:
 {
   "id": "lesson-${Date.now()}",
   "topic": "${topic}",
@@ -394,25 +471,46 @@ Respond in STRICT JSON format matching this schema:
   "cefrLevel": "${effectiveTargetLevel}",
   "title": "Short catchy title in Vietnamese and English",
   "objectiveVi": "Clear 1-2 sentence learning objective in Vietnamese",
-  "conceptExplanation": "In-depth pedagogical explanation in Vietnamese with clear formatting, comparisons, and mnemonic tips",
+  "conceptExplanation": "Clear, intuitive 2-3 sentence concept breakdown in Vietnamese",
+  "steps": [
+    { "stepNumber": 1, "title": "Mục tiêu trọng tâm", "description": "Xác định rõ kết quả cần đạt", "keyTakeaway": "Trọng tâm kiến thức" },
+    { "stepNumber": 2, "title": "Từ vựng mở rộng (8-10 từ)", "description": "Nắm vững bộ từ vựng chủ điểm", "keyTakeaway": "Phát âm, nghĩa & collocations" },
+    { "stepNumber": 3, "title": "Mẫu câu cơ bản thực dụng", "description": "Tối giản ngữ pháp, dễ thuộc dễ nhớ", "keyTakeaway": "Công thức và ứng dụng nhanh" },
+    { "stepNumber": 4, "title": "Ví dụ thực tế sinh động", "description": "Nhiều tình huống và hội thoại mẫu", "keyTakeaway": "Quan sát ngữ cảnh ứng dụng" },
+    { "stepNumber": 5, "title": "Luyện tập tương tác", "description": "4 câu trắc nghiệm củng cố", "keyTakeaway": "Đánh giá mức độ hiểu bài" }
+  ],
   "vocabAndCollocations": [
     {
-      "word": "word or idiom",
+      "word": "word or collocation",
       "ipa": "/.../",
       "partOfSpeech": "part of speech",
-      "meaningVi": "Vietnamese meaning",
-      "exampleEn": "Natural English sentence",
-      "exampleVi": "Vietnamese translation",
-      "examNote": "Tips for exams / collocations"
+      "meaningVi": "Nghĩa tiếng Việt",
+      "exampleEn": "Ví dụ tiếng Anh 1",
+      "exampleVi": "Bản dịch 1",
+      "additionalExampleEn": "Ví dụ tiếng Anh 2 thêm ngữ cảnh",
+      "additionalExampleVi": "Bản dịch 2",
+      "examNote": "Mẹo thi hoặc lưu ý sử dụng"
     }
   ],
   "grammarStructures": [
     {
-      "name": "Structure Name",
-      "formula": "Grammar Formula",
-      "exampleEn": "Example in English",
-      "exampleVi": "Example in Vietnamese",
-      "examTrapVi": "Common trap in exam questions"
+      "name": "Tên cấu trúc",
+      "formula": "Công thức cơ bản",
+      "exampleEn": "Ví dụ mẫu",
+      "exampleVi": "Dịch tiếng Việt",
+      "examTrapVi": "Lưu ý sử dụng",
+      "moreExamples": [
+        { "en": "Ví dụ bổ sung 1", "vi": "Dịch ví dụ 1" },
+        { "en": "Ví dụ bổ sung 2", "vi": "Dịch ví dụ 2" }
+      ]
+    }
+  ],
+  "realLifeExamples": [
+    {
+      "context": "Tình huống đời sống / Đối thoại",
+      "dialogueOrSentenceEn": "Hội thoại hoặc câu ví dụ thực tế",
+      "translationVi": "Bản dịch tiếng Việt",
+      "explanation": "Phân tích ngữ cảnh"
     }
   ],
   "interactiveExercises": [
@@ -420,14 +518,14 @@ Respond in STRICT JSON format matching this schema:
       "id": "ex-1",
       "type": "multiple-choice",
       "question": "Question text",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "options": ["A", "B", "C", "D"],
       "correctAnswer": "Exact correct string or option",
-      "explanationVi": "Detailed reason why this answer is correct in Vietnamese"
+      "explanationVi": "Detailed explanation in Vietnamese"
     }
   ],
-  "tutorTip": "Inspiring, practical advice from AI Tutor in Vietnamese",
+  "tutorTip": "Lời khuyên truyền cảm hứng từ Gia sư AI",
   "createdAt": "${new Date().toISOString()}"
-} `;
+}`;
 
     const systemPrompt = isPrimary ? primarySystemPrompt : secondarySystemPrompt;
 

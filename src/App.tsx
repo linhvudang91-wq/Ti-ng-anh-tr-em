@@ -10,6 +10,7 @@ import {
   AiTutorTab,
   LessonMode,
   AppLayer,
+  UnitDifficultyFilter,
 } from './types';
 import { CURRICULUM_UNITS, TEXTBOOK_NAMES, getUnitsByGrade } from './data/curriculumData';
 import {
@@ -85,8 +86,14 @@ export default function App() {
   const [aiTutorInitialTab, setAiTutorInitialTab] = useState<AiTutorTab>('companion-chat');
   const [readingInitialTopic, setReadingInitialTopic] = useState<string | undefined>(undefined);
 
+  // User Progress State
+  const [progress, setProgress] = useState(getUserProgress);
+
   // Filter for B2 Chuyên Anh in secondary grades (6-9)
   const [chuyenOnlyFilter, setChuyenOnlyFilter] = useState<boolean>(false);
+
+  // Filter for Unit difficulty based on student's current quiz score
+  const [difficultyFilter, setDifficultyFilter] = useState<UnitDifficultyFilter>('all');
 
   // Helper to calculate progress percentage for each Unit
   const calculateUnitProgress = (unitId: string, u: (typeof CURRICULUM_UNITS)[0]): number => {
@@ -103,6 +110,21 @@ export default function App() {
     return 0;
   };
 
+  // Helper to determine Unit difficulty based on the student's current quiz scores
+  const getUnitDifficulty = (unitId: string, u: (typeof CURRICULUM_UNITS)[0]): 'easy' | 'medium' | 'hard' => {
+    const score = progress?.quizScores?.[unitId];
+    if (score !== undefined) {
+      if (score >= 80) return 'easy';
+      if (score >= 50) return 'medium';
+      return 'hard';
+    }
+    // If student hasn't taken quiz yet:
+    if (u.isB2Chuyen) return 'hard';
+    if (u.unitNumber <= 3) return 'easy';
+    if (u.unitNumber <= 7) return 'medium';
+    return 'hard';
+  };
+
   // Filter units for current grade and semester
   const availableUnits = CURRICULUM_UNITS.filter((u) => {
     if (u.grade !== grade) return false;
@@ -110,6 +132,20 @@ export default function App() {
     if (chuyenOnlyFilter && !u.isB2Chuyen) return false;
     return u.semester === semester || u.isB2Chuyen;
   });
+
+  // Filter units by difficulty based on student quiz scores
+  const displayedUnits = availableUnits.filter((u) => {
+    if (difficultyFilter === 'all') return true;
+    return getUnitDifficulty(u.id, u) === difficultyFilter;
+  });
+
+  // Dynamic counts for difficulty filter badges
+  const difficultyCounts = {
+    all: availableUnits.length,
+    easy: availableUnits.filter((u) => getUnitDifficulty(u.id, u) === 'easy').length,
+    medium: availableUnits.filter((u) => getUnitDifficulty(u.id, u) === 'medium').length,
+    hard: availableUnits.filter((u) => getUnitDifficulty(u.id, u) === 'hard').length,
+  };
 
   const [selectedUnitId, setSelectedUnitId] = useState<string>(
     availableUnits[0]?.id || CURRICULUM_UNITS[0].id
@@ -132,9 +168,6 @@ export default function App() {
     availableUnits[0] ||
     CURRICULUM_UNITS[0];
 
-  // User Progress State
-  const [progress, setProgress] = useState(getUserProgress);
-
   // Modals state
   const [showPlacementTest, setShowPlacementTest] = useState(false);
   const [showNotebook, setShowNotebook] = useState(false);
@@ -150,6 +183,7 @@ export default function App() {
     setActiveUser(selectedUser);
     setProgress(selectedUser.progress);
     setGrade(selectedUser.grade);
+    setEducationLevel(selectedUser.grade <= 5 ? 'cap-1' : 'cap-2');
     if (selectedUser.target === 'chuyen-b2' && selectedUser.grade >= 6) {
       setChuyenOnlyFilter(true);
     } else {
@@ -464,37 +498,41 @@ export default function App() {
 
             {/* Level Selector: Cấp 1 vs Cấp 2 */}
             <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200 self-start md:self-auto">
-              <button
-                id="btn-level-cap-1"
-                onClick={() => {
-                  setEducationLevel('cap-1');
-                  if (grade > 5) setGrade(3);
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  educationLevel === 'cap-1'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-                }`}
-              >
-                <span>🏫 Cấp 1 (Tiểu học)</span>
-                <span className="text-[10px] opacity-80 font-normal">Lớp 3, 4, 5</span>
-              </button>
+              {activeUser.grade <= 5 && (
+                <button
+                  id="btn-level-cap-1"
+                  onClick={() => {
+                    setEducationLevel('cap-1');
+                    if (grade > 5) setGrade(3);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    educationLevel === 'cap-1'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>🏫 Cấp 1 (Tiểu học)</span>
+                  <span className="text-[10px] opacity-80 font-normal">Lớp 3, 4, 5</span>
+                </button>
+              )}
 
-              <button
-                id="btn-level-cap-2"
-                onClick={() => {
-                  setEducationLevel('cap-2');
-                  if (grade < 6) setGrade(6);
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  educationLevel === 'cap-2'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-                }`}
-              >
-                <span>🎓 Cấp 2 (THCS)</span>
-                <span className="text-[10px] opacity-80 font-normal">Lớp 6, 7, 8, 9</span>
-              </button>
+              {activeUser.grade >= 6 && (
+                <button
+                  id="btn-level-cap-2"
+                  onClick={() => {
+                    setEducationLevel('cap-2');
+                    if (grade < 6) setGrade(6);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    educationLevel === 'cap-2'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>🎓 Cấp 2 (THCS)</span>
+                  <span className="text-[10px] opacity-80 font-normal">Lớp 6, 7, 8, 9</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -665,51 +703,108 @@ export default function App() {
 
         {/* Units Navigation Row */}
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 flex-wrap">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 10 Đơn vị bài học (Lớp {grade} - Học kỳ {semester}):
               </span>
             </div>
 
-            {/* B2 Chuyen Filter Toggle for Grade 6-9 */}
-            {grade >= 6 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Unit Difficulty Filter (Dễ, Trung bình, Khó) based on student quiz scores */}
               <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <span className="text-[11px] font-bold text-slate-500 px-2 py-0.5 hidden sm:inline">
+                  Lọc độ khó:
+                </span>
                 <button
-                  id="filter-all-units"
-                  onClick={() => setChuyenOnlyFilter(false)}
-                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                    !chuyenOnlyFilter
+                  id="filter-diff-all"
+                  onClick={() => setDifficultyFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    difficultyFilter === 'all'
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Tất cả bài học
+                  Tất cả ({difficultyCounts.all})
                 </button>
                 <button
-                  id="filter-chuyen-units"
-                  onClick={() => setChuyenOnlyFilter(true)}
-                  className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
-                    chuyenOnlyFilter
-                      ? 'bg-amber-500 text-white shadow-2xs'
-                      : 'text-amber-800 hover:text-amber-900 hover:bg-amber-50'
+                  id="filter-diff-easy"
+                  onClick={() => setDifficultyFilter('easy')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                    difficultyFilter === 'easy'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'text-emerald-800 hover:bg-emerald-50'
                   }`}
+                  title="Bài học học viên đã nắm vững (Điểm quiz ≥ 80đ hoặc cơ bản)"
                 >
-                  <span>🏆 Chuyên Anh B2</span>
-                  <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded font-mono">
-                    Luyện thi 10
-                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  <span>Dễ ({difficultyCounts.easy})</span>
+                </button>
+                <button
+                  id="filter-diff-medium"
+                  onClick={() => setDifficultyFilter('medium')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                    difficultyFilter === 'medium'
+                      ? 'bg-amber-500 text-white shadow-2xs'
+                      : 'text-amber-800 hover:bg-amber-50'
+                  }`}
+                  title="Bài học học viên đạt mức vừa sức (Điểm quiz 50-79đ)"
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  <span>Trung bình ({difficultyCounts.medium})</span>
+                </button>
+                <button
+                  id="filter-diff-hard"
+                  onClick={() => setDifficultyFilter('hard')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                    difficultyFilter === 'hard'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'text-rose-800 hover:bg-rose-50'
+                  }`}
+                  title="Bài học cần ôn tập trọng tâm (Điểm quiz < 50đ hoặc Chuyên B2)"
+                >
+                  <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                  <span>Khó ({difficultyCounts.hard})</span>
                 </button>
               </div>
-            )}
+
+              {/* B2 Chuyen Filter Toggle for Grade 6-9 */}
+              {grade >= 6 && (
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                  <button
+                    id="filter-all-units"
+                    onClick={() => setChuyenOnlyFilter(false)}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                      !chuyenOnlyFilter
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    SGK Chuẩn
+                  </button>
+                  <button
+                    id="filter-chuyen-units"
+                    onClick={() => setChuyenOnlyFilter(true)}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                      chuyenOnlyFilter
+                        ? 'bg-amber-500 text-white shadow-2xs'
+                        : 'text-amber-800 hover:text-amber-900 hover:bg-amber-50'
+                    }`}
+                  >
+                    <span>🏆 Chuyên B2</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {availableUnits.map((u) => {
+            {displayedUnits.map((u) => {
               const isSelected = u.id === activeUnit.id;
               const quizScore = progress.quizScores[u.id];
               const isChuyen = u.isB2Chuyen;
               const unitProgress = calculateUnitProgress(u.id, u);
+              const unitDifficulty = getUnitDifficulty(u.id, u);
 
               return (
                 <div
@@ -754,14 +849,39 @@ export default function App() {
                               {u.targetTierBadge}
                             </span>
                           )}
+
+                          {/* Difficulty Badge based on Quiz Score */}
+                          {unitDifficulty === 'easy' && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              <span>Dễ</span>
+                              {quizScore !== undefined && <span>({quizScore}đ)</span>}
+                            </span>
+                          )}
+                          {unitDifficulty === 'medium' && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              <span>Trung bình</span>
+                              {quizScore !== undefined && <span>({quizScore}đ)</span>}
+                            </span>
+                          )}
+                          {unitDifficulty === 'hard' && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                              <span>Khó</span>
+                              {quizScore !== undefined ? (
+                                <span>({quizScore}đ)</span>
+                              ) : isChuyen ? (
+                                <span>(B2)</span>
+                              ) : (
+                                <span>(Thử thách)</span>
+                              )}
+                            </span>
+                          )}
+
                           <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200">
                             📚 {u.vocabularies.length} từ
                           </span>
-                          {quizScore !== undefined && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              {quizScore}đ
-                            </span>
-                          )}
                         </div>
                         <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-1 mt-0.5">
                           {u.title}
@@ -840,6 +960,33 @@ export default function App() {
                 </div>
               );
             })}
+
+            {displayedUnits.length === 0 && (
+              <div className="col-span-full p-8 text-center bg-white rounded-2xl border border-dashed border-slate-300 space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto text-xl font-bold">
+                  🎯
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-slate-800">
+                    Chưa có bài học nào ở mức độ{' '}
+                    {difficultyFilter === 'easy'
+                      ? 'Dễ (Điểm quiz ≥ 80)'
+                      : difficultyFilter === 'medium'
+                      ? 'Trung bình (Điểm quiz 50-79)'
+                      : 'Khó (Điểm quiz < 50 hoặc Chuyên B2)'}
+                  </h4>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Hệ thống tự động xếp loại độ khó theo điểm kiểm tra trắc nghiệm (Quiz Score) hiện tại của học viên.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDifficultyFilter('all')}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                >
+                  Xem tất cả bài học ({availableUnits.length})
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

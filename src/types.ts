@@ -174,14 +174,32 @@ export interface ReadingPassage {
   createdAt: string;
 }
 
+export type UnitDifficultyFilter = 'all' | 'easy' | 'medium' | 'hard';
+
+export interface LessonStep {
+  stepNumber: number;
+  title: string;
+  description: string;
+  keyTakeaway?: string;
+}
+
+export interface RealLifeExample {
+  context: string;
+  dialogueOrSentenceEn: string;
+  translationVi: string;
+  explanation?: string;
+}
+
 export interface GeneratedLesson {
   id: string;
   topic: string;
   grade: GradeLevel;
-  cefrLevel: string; // e.g. 'B2 (Chuyên Anh 10)'
+  cefrLevel: string; // e.g. 'A1', 'A2', 'B1', 'B2'
   title: string;
   objectiveVi: string;
   conceptExplanation: string;
+  steps?: LessonStep[];
+  realLifeExamples?: RealLifeExample[];
   vocabAndCollocations: {
     word: string;
     ipa: string;
@@ -189,6 +207,8 @@ export interface GeneratedLesson {
     meaningVi: string;
     exampleEn: string;
     exampleVi: string;
+    additionalExampleEn?: string;
+    additionalExampleVi?: string;
     examNote?: string;
   }[];
   grammarStructures: {
@@ -196,7 +216,8 @@ export interface GeneratedLesson {
     formula: string;
     exampleEn: string;
     exampleVi: string;
-    examTrapVi: string;
+    examTrapVi?: string;
+    moreExamples?: { en: string; vi: string }[];
   }[];
   interactiveExercises: {
     id: string;

@@ -47,6 +47,8 @@ export const PortalLayer: React.FC<PortalLayerProps> = ({
   const [users, setUsers] = useState<UserProfile[]>(() => getAllUsers());
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
+  const [deletePin, setDeletePin] = useState<string>('');
+  const [deletePinError, setDeletePinError] = useState<string>('');
 
   // New User Form State
   const [newUserName, setNewUserName] = useState('');
@@ -92,10 +94,16 @@ export const PortalLayer: React.FC<PortalLayerProps> = ({
 
   const handleDeleteUser = () => {
     if (!userToDelete) return;
+    if (deletePin.trim() !== '1111') {
+      setDeletePinError('Mã xác nhận không đúng. Vui lòng nhập mã 1111 để xóa.');
+      return;
+    }
     const deletedId = userToDelete.id;
     const remaining = deleteUserProfile(deletedId);
     setUsers(remaining);
     setUserToDelete(null);
+    setDeletePin('');
+    setDeletePinError('');
 
     // If active user was deleted, switch to the remaining active user
     if (activeUser.id === deletedId && remaining.length > 0) {
@@ -291,6 +299,8 @@ export const PortalLayer: React.FC<PortalLayerProps> = ({
                       onClick={(e) => {
                         e.stopPropagation();
                         setUserToDelete(u);
+                        setDeletePin('');
+                        setDeletePinError('');
                       }}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-colors"
                     >
@@ -514,9 +524,41 @@ export const PortalLayer: React.FC<PortalLayerProps> = ({
               </p>
             </div>
 
+            {/* PIN Code 1111 Security Box */}
+            <div className="p-3 bg-slate-950/80 rounded-xl border border-red-500/30 text-left space-y-2">
+              <label className="block text-xs font-bold text-slate-200">
+                🔒 Nhập mã bảo mật để xóa (Mã xóa: <span className="text-red-400 font-mono font-extrabold text-sm">1111</span>):
+              </label>
+              <input
+                id="input-delete-user-pin-portal"
+                type="text"
+                maxLength={10}
+                value={deletePin}
+                onChange={(e) => {
+                  setDeletePin(e.target.value);
+                  if (deletePinError) setDeletePinError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleDeleteUser();
+                }}
+                placeholder="Nhập 1111"
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono tracking-widest text-sm focus:outline-hidden focus:border-red-400 focus:ring-1 focus:ring-red-400"
+                autoFocus
+              />
+              {deletePinError && (
+                <p className="text-xs font-bold text-red-400 flex items-center gap-1">
+                  ⚠️ {deletePinError}
+                </p>
+              )}
+            </div>
+
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
-                onClick={() => setUserToDelete(null)}
+                onClick={() => {
+                  setUserToDelete(null);
+                  setDeletePin('');
+                  setDeletePinError('');
+                }}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
               >
                 Hủy bỏ
